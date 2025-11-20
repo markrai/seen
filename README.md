@@ -1,3 +1,5 @@
+![Logo](public/logo.png)
+
 # Nazr v0.8.0 SQLite
 
 ## Why?
