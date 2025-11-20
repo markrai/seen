@@ -1,0 +1,99 @@
+# Dockerfile with CUDA support for NVIDIA GPUs
+FROM nvidia/cuda:12.0.0-devel-ubuntu22.04 AS builder
+
+# Install Rust and build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates build-essential pkg-config clang \
+    libvips-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Build ffmpeg with CUDA support (GPU + rich CPU codecs)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git nasm yasm \
+    libx264-dev libx265-dev libvpx-dev \
+    libmp3lame-dev libopus-dev libvorbis-dev \
+    libass-dev libfreetype6-dev libfontconfig1-dev libfribidi-dev \
+    libfdk-aac-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install ffnvcodec (NVIDIA Video Codec SDK headers) required for CUDA support
+RUN git clone --depth 1 https://github.com/FFmpeg/nv-codec-headers.git /tmp/nv-codec-headers && \
+    cd /tmp/nv-codec-headers && \
+    make && \
+    make install && \
+    rm -rf /tmp/nv-codec-headers
+
+# Clone and build ffmpeg with CUDA and CPU codecs
+RUN git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git /tmp/ffmpeg && \
+    cd /tmp/ffmpeg && \
+    ./configure \
+        --enable-gpl \
+        --enable-cuda \
+        --enable-cuvid \
+        --enable-nvenc \
+        --enable-nonfree \
+        --enable-libnpp \
+        --enable-libmp3lame \
+        --enable-libx264 \
+        --enable-libx265 \
+        --enable-libvpx \
+        --enable-libopus \
+        --enable-libvorbis \
+        --enable-libass \
+        --enable-libfreetype \
+        --enable-libfontconfig \
+        --enable-libfribidi \
+        --extra-cflags=-I/usr/local/cuda/include \
+        --extra-ldflags=-L/usr/local/cuda/lib64 \
+        --enable-shared \
+        --disable-static && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    rm -rf /tmp/ffmpeg
+
+WORKDIR /app
+COPY . .
+# Use available CPU cores for parallel compilation (can be overridden with build arg)
+# Defaults to number of available processors, but can be limited via CARGO_BUILD_JOBS build arg
+ARG CARGO_BUILD_JOBS
+# Accept build args for cargo features
+ARG CARGO_BUILD_FLAGS=""
+RUN if [ -z "$CARGO_BUILD_JOBS" ]; then \
+        export CARGO_BUILD_JOBS=$(nproc); \
+    else \
+        export CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS; \
+    fi && \
+    echo "Building with $CARGO_BUILD_JOBS parallel jobs" && \
+    cargo build --release ${CARGO_BUILD_FLAGS} -j $CARGO_BUILD_JOBS
+
+# Runtime image
+FROM nvidia/cuda:12.0.0-runtime-ubuntu22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libvips ca-certificates libmp3lame0 \
+    libx264-dev libx265-dev libvpx-dev \
+    libopus-dev libvorbis-dev \
+    libass-dev libfreetype6-dev libfontconfig1-dev libfribidi-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy ffmpeg from builder
+COPY --from=builder /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=builder /usr/local/bin/ffprobe /usr/local/bin/ffprobe
+# Copy all FFmpeg shared libraries (libav*, libswresample*, libswscale*, libpostproc*)
+COPY --from=builder /usr/local/lib/libav* /usr/local/lib/
+COPY --from=builder /usr/local/lib/libswresample* /usr/local/lib/
+COPY --from=builder /usr/local/lib/libswscale* /usr/local/lib/
+COPY --from=builder /usr/local/lib/libpostproc* /usr/local/lib/
+RUN ldconfig
+
+WORKDIR /app
+ENV RUST_LOG=info
+COPY --from=builder /app/target/release/nazr-backend-sqlite /usr/local/bin/nazr-backend-sqlite
+EXPOSE 8080
+ENTRYPOINT ["nazr-backend-sqlite"]
+

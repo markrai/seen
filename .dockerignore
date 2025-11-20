@@ -1,0 +1,22 @@
+# Reduce context size and avoid BuildKit errors with symlinks in target/
+.git
+.git/**
+target
+target/**
+**/node_modules
+**/node_modules/**
+**/.vite
+**/.vite/**
+**/dist
+**/dist/**
+**/.DS_Store
+**/*.log
+nazr-data
+nazr-data/**
+# Frontend build artifacts (if any in this repo)
+nazrweb/node_modules
+nazrweb/node_modules/**
+nazrweb/dist
+nazrweb/dist/**
+*.sqlite
+*.db
