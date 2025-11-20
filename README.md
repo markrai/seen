@@ -20,14 +20,6 @@
 
 Detect and mange individuals in your photo library. This feature uses InsightFace models (SCRFD for detection, ArcFace for recognition) via ONNX Runtime.
 
-
-## Questions for myself
-
-- Does the GPU setup require extra setup?
-- Make sure that facial recognition loads by default. Also provide information to load it without this feature.
-- Are the memory requirements accurate?
-
-
 ### Requirements
 
 - **Models**: The feature automatically downloads InsightFace models (~100MB total) on first run
