@@ -1,6 +1,6 @@
 ![Logo](logo.png)
 
-# Nazr v0.8.0 SQLite
+# Nazr SQLite v0.8.0 
 
 ## Why?
 
