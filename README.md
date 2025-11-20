@@ -26,6 +26,48 @@ Detect and mange individuals in your photo library. This feature uses InsightFac
 - **Memory**: Models require ~200-300MB RAM when loaded
 - **Storage**: Models are cached in `data/models/` directory
 
+## Docker Images
+
+All Docker images are available on Docker Hub at `markraidc/nazr-backend-sqlite`:
+
+### x86_64/AMD64 Images
+
+**With Facial Recognition:**
+- `markraidc/nazr-backend-sqlite:0.8.0` (~867MB)
+- `markraidc/nazr-backend-sqlite:latest` (~867MB)
+
+**Without Facial Recognition:**
+- `markraidc/nazr-backend-sqlite:0.8.0-no-face` (~829MB)
+- `markraidc/nazr-backend-sqlite:latest-no-face` (~829MB)
+
+### ARM64 Images
+
+**With Facial Recognition:**
+- `markraidc/nazr-backend-sqlite:0.8.0-arm64` (~214MB)
+- `markraidc/nazr-backend-sqlite:latest-arm64` (~214MB)
+
+**Without Facial Recognition:**
+- `markraidc/nazr-backend-sqlite:0.8.0-no-face-arm64` (~214MB)
+- `markraidc/nazr-backend-sqlite:latest-no-face-arm64` (~214MB)
+
+### Pulling Images
+
+```bash
+# x86_64 with facial recognition
+docker pull markraidc/nazr-backend-sqlite:latest
+
+# x86_64 without facial recognition
+docker pull markraidc/nazr-backend-sqlite:latest-no-face
+
+# ARM64 with facial recognition
+docker pull markraidc/nazr-backend-sqlite:latest-arm64
+
+# ARM64 without facial recognition
+docker pull markraidc/nazr-backend-sqlite:latest-no-face-arm64
+```
+
+---
+
 ## Deployment Options
 
 Nazr can be deployed **with** or **without** facial recognition support:
