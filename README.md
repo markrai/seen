@@ -1,6 +1,6 @@
 ![Logo](logo.png)
 
-# Nazr v0.8.0 SQLite
+# Nazr SQLite v0.8.0 
 
 ## Why?
 
@@ -349,3 +349,9 @@ With this mapping in place, Nazr can always resolve the real file even when runn
 - Images/videos are not stored in SQLite, only metadata.
 - Thumbnails and previews are saved under ${FLASH_DATA}/derived.
 - SQLite is in WAL mode; DB file at ${FLASH_DATA}/db/nazr.db.
+
+<img width="1873" height="836" alt="image" src="https://github.com/user-attachments/assets/7c46c906-c65b-4da6-9e95-7308b948b79a" />
+
+<img width="1887" height="873" alt="image" src="https://github.com/user-attachments/assets/f563309b-7c4d-441d-ac30-a65be31d2e7c" />
+
+
