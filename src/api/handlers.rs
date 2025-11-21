@@ -2538,3 +2538,359 @@ pub async fn save_orientation(State(state): State<Arc<AppState>>, Path(id): Path
         }
     }
 }
+
+// Album handlers
+
+#[derive(Deserialize)]
+pub struct CreateAlbumRequest {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct AlbumResponse {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub asset_ids: Vec<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateAlbumRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct AddAssetsToAlbumRequest {
+    pub asset_ids: Vec<i64>,
+}
+
+pub async fn list_albums(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking({
+        let dbp = state.db_path.clone();
+        move || -> Result<Vec<AlbumResponse>> {
+            let conn = Connection::open(dbp)?;
+            let albums = db::query::list_albums(&conn)?;
+            let mut responses = Vec::new();
+            for (id, name, description, created_at, updated_at) in albums {
+                // Get asset IDs for this album
+                let mut stmt = conn.prepare("SELECT asset_id FROM album_assets WHERE album_id = ?1 ORDER BY asset_id")?;
+                let asset_rows = stmt.query_map(params![id], |row| {
+                    row.get::<_, i64>(0)
+                })?;
+                let mut asset_ids = Vec::new();
+                for row in asset_rows {
+                    asset_ids.push(row?);
+                }
+                responses.push(AlbumResponse {
+                    id,
+                    name,
+                    description,
+                    asset_ids,
+                    created_at,
+                    updated_at,
+                });
+            }
+            Ok(responses)
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(albums)) => (StatusCode::OK, Json(albums)).into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("Error listing albums: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Task error listing albums: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Internal server error"
+            }))).into_response()
+        }
+    }
+}
+
+pub async fn get_album(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking({
+        let dbp = state.db_path.clone();
+        move || -> Result<Option<AlbumResponse>> {
+            let conn = Connection::open(dbp)?;
+            if let Some((id, name, description, created_at, updated_at, asset_ids)) = db::query::get_album(&conn, id)? {
+                Ok(Some(AlbumResponse {
+                    id,
+                    name,
+                    description,
+                    asset_ids,
+                    created_at,
+                    updated_at,
+                }))
+            } else {
+                Ok(None)
+            }
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(Some(album))) => (StatusCode::OK, Json(album)).into_response(),
+        Ok(Ok(None)) => (StatusCode::NOT_FOUND, Json(serde_json::json!({
+            "error": "Album not found"
+        }))).into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("Error getting album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Task error getting album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Internal server error"
+            }))).into_response()
+        }
+    }
+}
+
+pub async fn create_album(State(state): State<Arc<AppState>>, Json(req): Json<CreateAlbumRequest>) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking({
+        let dbp = state.db_path.clone();
+        let name = req.name.clone();
+        let description = req.description.clone();
+        move || -> Result<AlbumResponse> {
+            let conn = Connection::open(dbp)?;
+            let id = db::writer::create_album(&conn, &name, description.as_deref())?;
+            // Get the created album
+            if let Some((id, name, description, created_at, updated_at, asset_ids)) = db::query::get_album(&conn, id)? {
+                Ok(AlbumResponse {
+                    id,
+                    name,
+                    description,
+                    asset_ids,
+                    created_at,
+                    updated_at,
+                })
+            } else {
+                Err(anyhow::anyhow!("Failed to retrieve created album"))
+            }
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(album)) => (StatusCode::CREATED, Json(album)).into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("Error creating album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Task error creating album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Internal server error"
+            }))).into_response()
+        }
+    }
+}
+
+pub async fn update_album(State(state): State<Arc<AppState>>, Path(id): Path<i64>, Json(req): Json<UpdateAlbumRequest>) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking({
+        let dbp = state.db_path.clone();
+        let name = req.name.clone();
+        let description = req.description.clone();
+        move || -> Result<Option<AlbumResponse>> {
+            let conn = Connection::open(dbp)?;
+            let updated = db::writer::update_album(&conn, id, name.as_deref(), description.as_deref())?;
+            if updated {
+                // Get the updated album
+                if let Some((id, name, description, created_at, updated_at, asset_ids)) = db::query::get_album(&conn, id)? {
+                    Ok(Some(AlbumResponse {
+                        id,
+                        name,
+                        description,
+                        asset_ids,
+                        created_at,
+                        updated_at,
+                    }))
+                } else {
+                    Ok(None)
+                }
+            } else {
+                Ok(None)
+            }
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(Some(album))) => (StatusCode::OK, Json(album)).into_response(),
+        Ok(Ok(None)) => (StatusCode::NOT_FOUND, Json(serde_json::json!({
+            "error": "Album not found"
+        }))).into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("Error updating album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Task error updating album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Internal server error"
+            }))).into_response()
+        }
+    }
+}
+
+pub async fn delete_album(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking({
+        let dbp = state.db_path.clone();
+        move || -> Result<bool> {
+            let conn = Connection::open(dbp)?;
+            db::writer::delete_album(&conn, id)
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(true)) => (StatusCode::OK, Json(serde_json::json!({
+            "success": true
+        }))).into_response(),
+        Ok(Ok(false)) => (StatusCode::NOT_FOUND, Json(serde_json::json!({
+            "error": "Album not found"
+        }))).into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("Error deleting album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Task error deleting album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Internal server error"
+            }))).into_response()
+        }
+    }
+}
+
+pub async fn add_assets_to_album(State(state): State<Arc<AppState>>, Path(id): Path<i64>, Json(req): Json<AddAssetsToAlbumRequest>) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking({
+        let dbp = state.db_path.clone();
+        let asset_ids = req.asset_ids.clone();
+        move || -> Result<Option<AlbumResponse>> {
+            let conn = Connection::open(dbp)?;
+            // Check if album exists
+            if db::query::get_album(&conn, id)?.is_none() {
+                return Ok(None);
+            }
+            db::writer::add_assets_to_album(&conn, id, &asset_ids)?;
+            // Get the updated album
+            if let Some((id, name, description, created_at, updated_at, asset_ids)) = db::query::get_album(&conn, id)? {
+                Ok(Some(AlbumResponse {
+                    id,
+                    name,
+                    description,
+                    asset_ids,
+                    created_at,
+                    updated_at,
+                }))
+            } else {
+                Ok(None)
+            }
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(Some(album))) => (StatusCode::OK, Json(album)).into_response(),
+        Ok(Ok(None)) => (StatusCode::NOT_FOUND, Json(serde_json::json!({
+            "error": "Album not found"
+        }))).into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("Error adding assets to album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Task error adding assets to album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Internal server error"
+            }))).into_response()
+        }
+    }
+}
+
+pub async fn remove_assets_from_album(State(state): State<Arc<AppState>>, Path(id): Path<i64>, Json(req): Json<AddAssetsToAlbumRequest>) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking({
+        let dbp = state.db_path.clone();
+        let asset_ids = req.asset_ids.clone();
+        move || -> Result<Option<AlbumResponse>> {
+            let conn = Connection::open(dbp)?;
+            // Check if album exists
+            if db::query::get_album(&conn, id)?.is_none() {
+                return Ok(None);
+            }
+            db::writer::remove_assets_from_album(&conn, id, &asset_ids)?;
+            // Get the updated album
+            if let Some((id, name, description, created_at, updated_at, asset_ids)) = db::query::get_album(&conn, id)? {
+                Ok(Some(AlbumResponse {
+                    id,
+                    name,
+                    description,
+                    asset_ids,
+                    created_at,
+                    updated_at,
+                }))
+            } else {
+                Ok(None)
+            }
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(Some(album))) => (StatusCode::OK, Json(album)).into_response(),
+        Ok(Ok(None)) => (StatusCode::NOT_FOUND, Json(serde_json::json!({
+            "error": "Album not found"
+        }))).into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("Error removing assets from album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Task error removing assets from album: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Internal server error"
+            }))).into_response()
+        }
+    }
+}
+
+pub async fn get_albums_for_asset(State(state): State<Arc<AppState>>, Path(asset_id): Path<i64>) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking({
+        let dbp = state.db_path.clone();
+        move || -> Result<Vec<i64>> {
+            let conn = Connection::open(dbp)?;
+            db::query::get_albums_for_asset(&conn, asset_id)
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(album_ids)) => (StatusCode::OK, Json(album_ids)).into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("Error getting albums for asset: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Task error getting albums for asset: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Internal server error"
+            }))).into_response()
+        }
+    }
+}

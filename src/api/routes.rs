@@ -1,4 +1,4 @@
-use axum::{Router, routing::{get, post, delete}};
+use axum::{Router, routing::{get, post, delete, put}};
 use std::sync::Arc;
 use tower_http::cors::{CorsLayer, AllowOrigin};
 use axum::http::Method;
@@ -43,7 +43,15 @@ pub fn router(state: Arc<AppState>) -> Router {
             .route("/paths", get(handlers::get_scan_paths))
             .route("/paths", post(handlers::add_scan_path))
             .route("/paths", delete(handlers::remove_scan_path))
-            .route("/browse", get(handlers::browse_directory));
+            .route("/browse", get(handlers::browse_directory))
+            .route("/albums", get(handlers::list_albums))
+            .route("/albums", post(handlers::create_album))
+            .route("/albums/:id", get(handlers::get_album))
+            .route("/albums/:id", put(handlers::update_album))
+            .route("/albums/:id", delete(handlers::delete_album))
+            .route("/albums/:id/assets", post(handlers::add_assets_to_album))
+            .route("/albums/:id/assets", delete(handlers::remove_assets_from_album))
+            .route("/albums/for-asset/:asset_id", get(handlers::get_albums_for_asset));
 
         #[cfg(feature = "facial-recognition")]
         let r = {

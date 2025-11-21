@@ -84,6 +84,25 @@ CREATE TABLE IF NOT EXISTS face_settings (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS albums (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS album_assets (
+  album_id INTEGER NOT NULL,
+  asset_id INTEGER NOT NULL,
+  FOREIGN KEY(album_id) REFERENCES albums(id) ON DELETE CASCADE,
+  FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+  PRIMARY KEY(album_id, asset_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_album_assets_album ON album_assets(album_id);
+CREATE INDEX IF NOT EXISTS idx_album_assets_asset ON album_assets(asset_id);
     "#,
     )?;
 

@@ -607,3 +607,65 @@ pub fn get_person_centroid(conn: &Connection, person_id: i64) -> Result<Option<V
         None => Ok(None)
     }
 }
+
+/// List all albums
+pub fn list_albums(conn: &Connection) -> Result<Vec<(i64, String, Option<String>, i64, i64)>> {
+    let mut stmt = conn.prepare("SELECT id, name, description, created_at, updated_at FROM albums ORDER BY updated_at DESC")?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2).ok(),
+            row.get(3)?,
+            row.get(4)?,
+        ))
+    })?;
+    let mut albums = Vec::new();
+    for row in rows {
+        albums.push(row?);
+    }
+    Ok(albums)
+}
+
+/// Get a single album with its asset IDs
+pub fn get_album(conn: &Connection, album_id: i64) -> Result<Option<(i64, String, Option<String>, i64, i64, Vec<i64>)>> {
+    // Get album info
+    let mut stmt = conn.prepare("SELECT id, name, description, created_at, updated_at FROM albums WHERE id = ?1")?;
+    let album_info = stmt.query_row(params![album_id], |row| {
+        Ok((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2).ok(),
+            row.get(3)?,
+            row.get(4)?,
+        ))
+    }).optional()?;
+    
+    if let Some((id, name, description, created_at, updated_at)) = album_info {
+        // Get asset IDs for this album
+        let mut asset_stmt = conn.prepare("SELECT asset_id FROM album_assets WHERE album_id = ?1 ORDER BY asset_id")?;
+        let asset_rows = asset_stmt.query_map(params![album_id], |row| {
+            row.get::<_, i64>(0)
+        })?;
+        let mut asset_ids = Vec::new();
+        for row in asset_rows {
+            asset_ids.push(row?);
+        }
+        Ok(Some((id, name, description, created_at, updated_at, asset_ids)))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Get all albums that contain a specific asset
+pub fn get_albums_for_asset(conn: &Connection, asset_id: i64) -> Result<Vec<i64>> {
+    let mut stmt = conn.prepare("SELECT album_id FROM album_assets WHERE asset_id = ?1")?;
+    let rows = stmt.query_map(params![asset_id], |row| {
+        row.get::<_, i64>(0)
+    })?;
+    let mut album_ids = Vec::new();
+    for row in rows {
+        album_ids.push(row?);
+    }
+    Ok(album_ids)
+}

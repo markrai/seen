@@ -937,3 +937,120 @@ pub fn delete_assets_by_path_prefix(conn: &Connection, path_prefix: &str) -> Res
     
     Ok((assets_deleted, faces_deleted))
 }
+
+/// Create a new album
+pub fn create_album(conn: &Connection, name: &str, description: Option<&str>) -> Result<i64> {
+    let now = chrono::Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO albums (name, description, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+        params![name, description, now, now],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Update an album's name and/or description
+pub fn update_album(conn: &Connection, id: i64, name: Option<&str>, description: Option<&str>) -> Result<bool> {
+    let now = chrono::Utc::now().timestamp();
+    
+    if let Some(name) = name {
+        if let Some(description) = description {
+            let updated = conn.execute(
+                "UPDATE albums SET name = ?1, description = ?2, updated_at = ?3 WHERE id = ?4",
+                params![name, description, now, id],
+            )?;
+            Ok(updated > 0)
+        } else {
+            let updated = conn.execute(
+                "UPDATE albums SET name = ?1, updated_at = ?2 WHERE id = ?3",
+                params![name, now, id],
+            )?;
+            Ok(updated > 0)
+        }
+    } else if let Some(description) = description {
+        let updated = conn.execute(
+            "UPDATE albums SET description = ?1, updated_at = ?2 WHERE id = ?3",
+            params![description, now, id],
+        )?;
+        Ok(updated > 0)
+    } else {
+        // Just update the timestamp
+        let updated = conn.execute(
+            "UPDATE albums SET updated_at = ?1 WHERE id = ?2",
+            params![now, id],
+        )?;
+        Ok(updated > 0)
+    }
+}
+
+/// Delete an album (cascade deletes album_assets)
+pub fn delete_album(conn: &Connection, id: i64) -> Result<bool> {
+    let deleted = conn.execute("DELETE FROM albums WHERE id = ?1", params![id])?;
+    Ok(deleted > 0)
+}
+
+/// Add assets to an album
+pub fn add_assets_to_album(conn: &Connection, album_id: i64, asset_ids: &[i64]) -> Result<usize> {
+    if asset_ids.is_empty() {
+        return Ok(0);
+    }
+    
+    let tx = conn.unchecked_transaction()?;
+    let mut added = 0;
+    
+    for asset_id in asset_ids {
+        match tx.execute(
+            "INSERT OR IGNORE INTO album_assets (album_id, asset_id) VALUES (?1, ?2)",
+            params![album_id, asset_id],
+        ) {
+            Ok(1) => added += 1,
+            Ok(_) => {},
+            Err(e) => {
+                tx.rollback()?;
+                return Err(e.into());
+            }
+        }
+    }
+    
+    // Update album's updated_at timestamp
+    let now = chrono::Utc::now().timestamp();
+    let _ = tx.execute(
+        "UPDATE albums SET updated_at = ?1 WHERE id = ?2",
+        params![now, album_id],
+    );
+    
+    tx.commit()?;
+    Ok(added)
+}
+
+/// Remove assets from an album
+pub fn remove_assets_from_album(conn: &Connection, album_id: i64, asset_ids: &[i64]) -> Result<usize> {
+    if asset_ids.is_empty() {
+        return Ok(0);
+    }
+    
+    let tx = conn.unchecked_transaction()?;
+    let mut removed = 0;
+    
+    for asset_id in asset_ids {
+        match tx.execute(
+            "DELETE FROM album_assets WHERE album_id = ?1 AND asset_id = ?2",
+            params![album_id, asset_id],
+        ) {
+            Ok(count) => removed += count as usize,
+            Err(e) => {
+                tx.rollback()?;
+                return Err(e.into());
+            }
+        }
+    }
+    
+    // Update album's updated_at timestamp
+    let now = chrono::Utc::now().timestamp();
+    let _ = tx.execute(
+        "UPDATE albums SET updated_at = ?1 WHERE id = ?2",
+        params![now, album_id],
+    );
+    
+    tx.commit()?;
+    Ok(removed)
+}
