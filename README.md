@@ -1,4 +1,4 @@
-![Logo](logo.png)
+<img width="5000" height="2000" alt="Nazr" src="https://github.com/user-attachments/assets/46edf055-c081-4e42-8b85-a77018d9fd54" />
 
 # Nazr SQLite v0.8.0 
 
