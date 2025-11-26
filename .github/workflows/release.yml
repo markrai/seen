@@ -1,0 +1,83 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build Windows Executables
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build with facial recognition (default)
+        run: |
+          cargo build --release --features facial-recognition
+          if (Test-Path "target\release\nazr-backend-sqlite.exe") {
+            Copy-Item "target\release\nazr-backend-sqlite.exe" "nazr-backend-sqlite.exe"
+          }
+
+      - name: Build without facial recognition
+        run: |
+          cargo build --release --no-default-features
+          if (Test-Path "target\release\nazr-backend-sqlite.exe") {
+            Copy-Item "target\release\nazr-backend-sqlite.exe" "nazr-backend-sqlite-noface.exe"
+          }
+
+      - name: Run tests
+        run: cargo test --features facial-recognition
+
+      - name: Create release archive
+        run: |
+          $version = $env:GITHUB_REF -replace 'refs/tags/v', ''
+          Compress-Archive -Path nazr-backend-sqlite.exe, nazr-backend-sqlite-noface.exe -DestinationPath nazr-backend-sqlite-windows-$version.zip -Force
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            nazr-backend-sqlite.exe
+            nazr-backend-sqlite-noface.exe
+            nazr-backend-sqlite-windows-*.zip
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            nazr-backend-sqlite.exe
+            nazr-backend-sqlite-noface.exe
+            nazr-backend-sqlite-windows-*.zip
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+
