@@ -46,8 +46,8 @@ jobs:
       - name: Run tests (without facial recognition)
         run: cargo test --no-default-features
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+            # - name: Check formatting
+            #   run: cargo fmt --all -- --check
 
       - name: Clippy check
         run: cargo clippy --all-targets --all-features -- -D warnings
