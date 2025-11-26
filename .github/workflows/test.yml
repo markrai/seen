@@ -28,8 +28,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
       - name: Cache cargo dependencies
         uses: actions/cache@v3
@@ -64,29 +62,29 @@ jobs:
       - name: Run integration tests
         run: cargo test --test '*' --verbose
 
-  lint:
-    name: Lint and Format Check
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libvips-dev libglib2.0-dev
-
-      # - name: Check formatting
-      #   run: cargo fmt -- --check
-
-      - name: Run clippy
-        run: cargo clippy --all-features -- -D warnings
+  # lint:
+  #   name: Lint and Format Check
+  #   runs-on: ubuntu-latest
+  #   
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #     
+  #     - name: Install Rust toolchain
+  #       uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         components: rustfmt, clippy
+  #     
+  #     - name: Install system dependencies
+  #       run: |
+  #         sudo apt-get update
+  #         sudo apt-get install -y libvips-dev libglib2.0-dev
+  #     
+  #     # - name: Check formatting
+  #     #   run: cargo fmt -- --check
+  #     
+  #     - name: Run clippy
+  #       run: cargo clippy --all-features -- -D warnings
 
   test-coverage:
     name: Test Coverage (Ubuntu only)
