@@ -12,6 +12,43 @@ use crate::stats::Stats;
 use std::path::PathBuf;
 #[cfg(feature = "facial-recognition")]
 use parking_lot::Mutex;
+use tokio::runtime::Handle;
+
+// Type alias for FTS row tuple
+pub type FtsRow = (i64, String, String, String, Option<Vec<u8>>, String);
+
+// Configuration struct for run_writer
+pub struct WriterConfig {
+    pub handle: Handle,
+    pub rx: Receiver<DbWriteItem>,
+    pub conn: Connection,
+    pub fts_batch_size: usize,
+    pub thumb_tx: Sender<ThumbJob>,
+    pub gauges: Arc<QueueGauges>,
+    pub stats: Option<Arc<Stats>>,
+    #[cfg(feature = "facial-recognition")]
+    pub face_tx: Option<Sender<FaceJob>>,
+    #[cfg(feature = "facial-recognition")]
+    pub face_processor: Option<Arc<Mutex<FaceProcessor>>>,
+    #[cfg(feature = "facial-recognition")]
+    pub db_path: Option<PathBuf>,
+}
+
+// Configuration struct for commit_batch
+pub struct CommitBatchConfig<'a> {
+    pub conn: &'a Connection,
+    pub buf: &'a mut Vec<DbWriteItem>,
+    pub fts_rows: &'a mut Vec<FtsRow>,
+    pub fts_batch_size: usize,
+    pub thumb_tx: Sender<ThumbJob>,
+    pub gauges: &'a QueueGauges,
+    #[cfg(feature = "facial-recognition")]
+    pub face_tx: Option<&'a Sender<FaceJob>>,
+    #[cfg(feature = "facial-recognition")]
+    pub face_processor: Option<&'a Arc<Mutex<FaceProcessor>>>,
+    #[cfg(feature = "facial-recognition")]
+    pub db_path: Option<&'a PathBuf>,
+}
 
 #[derive(Clone, Debug)]
 pub struct DbWriteItem {
@@ -109,25 +146,20 @@ fn upsert_item(tx: &Transaction<'_>, it: &DbWriteItem) -> Result<i64> {
     }
 }
 
-#[cfg(feature = "facial-recognition")]
-pub fn run_writer(handle: tokio::runtime::Handle, rx: Receiver<DbWriteItem>, conn: Connection, fts_batch_size: usize, thumb_tx: Sender<ThumbJob>, gauges: Arc<QueueGauges>, stats: Option<Arc<Stats>>, face_tx: Option<Sender<FaceJob>>, face_processor: Option<Arc<Mutex<FaceProcessor>>>, db_path: PathBuf) -> Result<()> {
-    run_writer_impl(handle, rx, conn, fts_batch_size, thumb_tx, gauges, stats, face_tx, face_processor, Some(db_path))
+pub fn run_writer(config: WriterConfig) -> Result<()> {
+    run_writer_impl(config)
 }
 
-#[cfg(not(feature = "facial-recognition"))]
-pub fn run_writer(handle: tokio::runtime::Handle, rx: Receiver<DbWriteItem>, conn: Connection, fts_batch_size: usize, thumb_tx: Sender<ThumbJob>, gauges: Arc<QueueGauges>, stats: Option<Arc<Stats>>) -> Result<()> {
-    run_writer_impl(handle, rx, conn, fts_batch_size, thumb_tx, gauges, stats)
-}
-
-fn run_writer_impl(handle: tokio::runtime::Handle, mut rx: Receiver<DbWriteItem>, conn: Connection, fts_batch_size: usize, thumb_tx: Sender<ThumbJob>, gauges: Arc<QueueGauges>, stats: Option<Arc<Stats>>, #[cfg(feature = "facial-recognition")] face_tx: Option<Sender<FaceJob>>, #[cfg(feature = "facial-recognition")] face_processor: Option<Arc<Mutex<FaceProcessor>>>, #[cfg(feature = "facial-recognition")] db_path: Option<PathBuf>) -> Result<()> {
+fn run_writer_impl(mut config: WriterConfig) -> Result<()> {
+    let mut rx = config.rx;
     let mut buf: Vec<DbWriteItem> = Vec::with_capacity(4096);
-    let mut fts_rows: Vec<(i64, String, String, String, Option<Vec<u8>>, String)> = Vec::with_capacity(4096);
+    let mut fts_rows: Vec<FtsRow> = Vec::with_capacity(4096);
     let mut last_flush = Instant::now();
     const FLUSH_INTERVAL: Duration = Duration::from_secs(2);
     const BATCH_SIZE: usize = 500;  // Batch size for efficient transaction processing
     
     // Enter the runtime context
-    let _guard = handle.enter();
+    let _guard = config.handle.enter();
     
     loop {
         let elapsed = last_flush.elapsed();
@@ -137,19 +169,33 @@ fn run_writer_impl(handle: tokio::runtime::Handle, mut rx: Receiver<DbWriteItem>
             FLUSH_INTERVAL - elapsed
         };
         
-        match handle.block_on(tokio::time::timeout(timeout, rx.recv())) {
+        match config.handle.block_on(tokio::time::timeout(timeout, rx.recv())) {
             Ok(Some(item)) => {
-                gauges.db_write.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                config.gauges.db_write.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 buf.push(item);
                 
                 let should_flush = buf.len() >= BATCH_SIZE || last_flush.elapsed() >= FLUSH_INTERVAL;
                 if should_flush && !buf.is_empty() {
                     let n = buf.len();
                     let bytes: u64 = buf.iter().map(|it| it.size_bytes as u64).sum();
-                    match commit_batch(&conn, &mut buf, &mut fts_rows, fts_batch_size, thumb_tx.clone(), &gauges, #[cfg(feature = "facial-recognition")] face_tx.as_ref(), #[cfg(feature = "facial-recognition")] face_processor.as_ref(), #[cfg(feature = "facial-recognition")] db_path.as_ref()) {
+                    let commit_config = CommitBatchConfig {
+                        conn: &config.conn,
+                        buf: &mut buf,
+                        fts_rows: &mut fts_rows,
+                        fts_batch_size: config.fts_batch_size,
+                        thumb_tx: config.thumb_tx.clone(),
+                        gauges: &config.gauges,
+                        #[cfg(feature = "facial-recognition")]
+                        face_tx: config.face_tx.as_ref(),
+                        #[cfg(feature = "facial-recognition")]
+                        face_processor: config.face_processor.as_ref(),
+                        #[cfg(feature = "facial-recognition")]
+                        db_path: config.db_path.as_ref(),
+                    };
+                    match commit_batch(commit_config) {
                         Ok(_) => {
                             // Track files committed to SQLite (this is where files are actually committed in this codebase)
-                            if let Some(s) = &stats {
+                            if let Some(s) = &config.stats {
                                 s.inc_files_committed(n as u64);
                                 s.inc_bytes(bytes);
                             }
@@ -168,10 +214,24 @@ fn run_writer_impl(handle: tokio::runtime::Handle, mut rx: Receiver<DbWriteItem>
                 if !buf.is_empty() && last_flush.elapsed() >= FLUSH_INTERVAL {
                     let n = buf.len();
                     let bytes: u64 = buf.iter().map(|it| it.size_bytes as u64).sum();
-                    match commit_batch(&conn, &mut buf, &mut fts_rows, fts_batch_size, thumb_tx.clone(), &gauges, #[cfg(feature = "facial-recognition")] face_tx.as_ref(), #[cfg(feature = "facial-recognition")] face_processor.as_ref(), #[cfg(feature = "facial-recognition")] db_path.as_ref()) {
+                    let commit_config = CommitBatchConfig {
+                        conn: &config.conn,
+                        buf: &mut buf,
+                        fts_rows: &mut fts_rows,
+                        fts_batch_size: config.fts_batch_size,
+                        thumb_tx: config.thumb_tx.clone(),
+                        gauges: &config.gauges,
+                        #[cfg(feature = "facial-recognition")]
+                        face_tx: config.face_tx.as_ref(),
+                        #[cfg(feature = "facial-recognition")]
+                        face_processor: config.face_processor.as_ref(),
+                        #[cfg(feature = "facial-recognition")]
+                        db_path: config.db_path.as_ref(),
+                    };
+                    match commit_batch(commit_config) {
                         Ok(_) => {
                             // Track files committed to SQLite (this is where files are actually committed in this codebase)
-                            if let Some(s) = &stats {
+                            if let Some(s) = &config.stats {
                                 s.inc_files_committed(n as u64);
                                 s.inc_bytes(bytes);
                             }
@@ -189,10 +249,24 @@ fn run_writer_impl(handle: tokio::runtime::Handle, mut rx: Receiver<DbWriteItem>
     if !buf.is_empty() {
         let n = buf.len();
         let bytes: u64 = buf.iter().map(|it| it.size_bytes as u64).sum();
-        match commit_batch(&conn, &mut buf, &mut fts_rows, fts_batch_size, thumb_tx.clone(), &gauges, #[cfg(feature = "facial-recognition")] face_tx.as_ref(), #[cfg(feature = "facial-recognition")] face_processor.as_ref(), #[cfg(feature = "facial-recognition")] db_path.as_ref()) {
+        let commit_config = CommitBatchConfig {
+            conn: &config.conn,
+            buf: &mut buf,
+            fts_rows: &mut fts_rows,
+            fts_batch_size: config.fts_batch_size,
+            thumb_tx: config.thumb_tx.clone(),
+            gauges: &config.gauges,
+            #[cfg(feature = "facial-recognition")]
+            face_tx: config.face_tx.as_ref(),
+            #[cfg(feature = "facial-recognition")]
+            face_processor: config.face_processor.as_ref(),
+            #[cfg(feature = "facial-recognition")]
+            db_path: config.db_path.as_ref(),
+        };
+        match commit_batch(commit_config) {
             Ok(_) => {
                 // Track files committed to SQLite (this is where files are actually committed in this codebase)
-                if let Some(s) = &stats {
+                if let Some(s) = &config.stats {
                     s.inc_files_committed(n as u64);
                     s.inc_bytes(bytes);
                 }
@@ -206,7 +280,22 @@ fn run_writer_impl(handle: tokio::runtime::Handle, mut rx: Receiver<DbWriteItem>
     Ok(())
 }
 
-fn commit_batch(conn: &Connection, buf: &mut Vec<DbWriteItem>, fts_rows: &mut Vec<(i64, String, String, String, Option<Vec<u8>>, String)>, _fts_batch_size: usize, thumb_tx: Sender<ThumbJob>, gauges: &QueueGauges, #[cfg(feature = "facial-recognition")] face_tx: Option<&Sender<FaceJob>>, #[cfg(feature = "facial-recognition")] face_processor: Option<&Arc<Mutex<FaceProcessor>>>, #[cfg(feature = "facial-recognition")] db_path: Option<&PathBuf>) -> Result<()> {
+fn commit_batch(config: CommitBatchConfig<'_>) -> Result<()> {
+    let CommitBatchConfig {
+        conn,
+        buf,
+        fts_rows,
+        fts_batch_size: _fts_batch_size,
+        thumb_tx,
+        gauges,
+        #[cfg(feature = "facial-recognition")]
+        face_tx,
+        #[cfg(feature = "facial-recognition")]
+        face_processor,
+        #[cfg(feature = "facial-recognition")]
+        db_path,
+    } = config;
+    
     #[cfg(feature = "facial-recognition")]
     let mut image_assets_for_face_detection: Vec<(i64, PathBuf, String)> = Vec::new();
     
@@ -322,14 +411,11 @@ fn commit_batch(conn: &Connection, buf: &mut Vec<DbWriteItem>, fts_rows: &mut Ve
             }
             
             // Check if asset already has face embeddings
-            let has_existing_faces: bool = match conn.query_row(
+            let has_existing_faces: bool = conn.query_row(
                 "SELECT EXISTS(SELECT 1 FROM face_embeddings WHERE asset_id = ?)",
                 params![asset_id],
                 |row| row.get(0)
-            ) {
-                Ok(has) => has,
-                Err(_) => false,
-            };
+            ).unwrap_or_default();
             
             if has_existing_faces {
                 continue;

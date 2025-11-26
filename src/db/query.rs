@@ -2,6 +2,31 @@ use anyhow::Result;
 use rusqlite::{Connection, params, Row, OptionalExtension};
 use crate::models::asset::{Asset, Paged, SearchResult, SearchMatchCounts};
 
+// Type aliases for complex query result types
+#[cfg(feature = "facial-recognition")]
+pub type AssetPathSize = (String, Option<i64>, Option<i64>);
+pub type FileUnchangedInfo = (i64, Option<i64>, Option<Vec<u8>>);
+#[cfg(feature = "facial-recognition")]
+pub type FaceInfo = (i64, Option<i64>, String, f64);
+#[cfg(feature = "facial-recognition")]
+pub type FaceEmbeddingRow = (i64, i64, Vec<u8>, Option<i64>);
+#[cfg(feature = "facial-recognition")]
+pub type UnassignedFace = (i64, i64, Vec<u8>, f64, String);
+pub type AlbumInfo = (i64, String, Option<String>, i64, i64);
+pub type AlbumDetail = (i64, String, Option<String>, i64, i64, Vec<i64>);
+
+// Search parameters struct
+pub struct SearchParams<'a> {
+    pub q: &'a str,
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+    pub camera_make: Option<&'a str>,
+    pub camera_model: Option<&'a str>,
+    pub platform_type: Option<&'a str>,
+    pub offset: i64,
+    pub limit: i64,
+}
+
 fn row_to_asset(row: &Row<'_>) -> rusqlite::Result<Asset> {
     let sha: Option<Vec<u8>> = row.get("sha256")?;
     let sha_hex = sha.map(|b| hex::encode(b));
@@ -59,7 +84,7 @@ pub fn get_face_row(conn: &Connection, face_id: i64) -> Result<Option<(i64, i64,
 }
 
 #[cfg(feature = "facial-recognition")]
-pub fn get_asset_path_size(conn: &Connection, asset_id: i64) -> Result<Option<(String, Option<i64>, Option<i64>)>> {
+pub fn get_asset_path_size(conn: &Connection, asset_id: i64) -> Result<Option<AssetPathSize>> {
     let mut stmt = conn.prepare("SELECT path, width, height FROM assets WHERE id = ?")?;
     let row = stmt.query_row(params![asset_id], |row| {
         Ok((row.get(0)?, row.get(1).ok(), row.get(2).ok()))
@@ -166,9 +191,9 @@ pub fn list_assets_by_person(conn: &Connection, person_id: i64, offset: i64, lim
     Ok(Paged { total, items })
 }
 
-pub fn search_assets(conn: &Connection, q: &str, from: Option<i64>, to: Option<i64>, camera_make: Option<&str>, camera_model: Option<&str>, platform_type: Option<&str>, offset: i64, limit: i64) -> Result<SearchResult> {
+pub fn search_assets(conn: &Connection, params: &SearchParams<'_>) -> Result<SearchResult> {
     // Parse query for wildcard patterns and text terms
-    let query_trimmed = q.trim();
+    let query_trimmed = params.q.trim();
     let has_wildcards = query_trimmed.contains('*') || query_trimmed.contains('?');
     
     let (wildcard_patterns, text_terms) = if has_wildcards {
@@ -212,12 +237,12 @@ pub fn search_assets(conn: &Connection, q: &str, from: Option<i64>, to: Option<i
     };
     
     let mut where_clauses = Vec::new();
-    let mut params: Vec<rusqlite::types::Value> = Vec::new();
+    let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
     
     // Add FTS5 search only if we have text terms
     if use_fts5 {
         where_clauses.push("id IN (SELECT rowid FROM fts_assets WHERE fts_assets MATCH ?)".to_string());
-        params.push(rusqlite::types::Value::from(fts_query));
+        params_vec.push(rusqlite::types::Value::from(fts_query));
     }
     
     // Apply GLOB filename filters for wildcard patterns
@@ -242,11 +267,11 @@ pub fn search_assets(conn: &Connection, q: &str, from: Option<i64>, to: Option<i
             where_clauses.push(format!("LOWER(filename) GLOB '{}'", escaped_pattern));
         }
     }
-    if let Some(f) = from { where_clauses.push("taken_at >= ?".to_string()); params.push(f.into()); }
-    if let Some(t) = to { where_clauses.push("taken_at <= ?".to_string()); params.push(t.into()); }
-    if let Some(m) = camera_make { where_clauses.push("camera_make = ?".to_string()); params.push(rusqlite::types::Value::from(m.to_string())); }
-    if let Some(m) = camera_model { where_clauses.push("camera_model = ?".to_string()); params.push(rusqlite::types::Value::from(m.to_string())); }
-    if let Some(pt) = platform_type {
+    if let Some(f) = params.from { where_clauses.push("taken_at >= ?".to_string()); params_vec.push(f.into()); }
+    if let Some(t) = params.to { where_clauses.push("taken_at <= ?".to_string()); params_vec.push(t.into()); }
+    if let Some(m) = params.camera_make { where_clauses.push("camera_make = ?".to_string()); params_vec.push(rusqlite::types::Value::from(m.to_string())); }
+    if let Some(m) = params.camera_model { where_clauses.push("camera_model = ?".to_string()); params_vec.push(rusqlite::types::Value::from(m.to_string())); }
+    if let Some(pt) = params.platform_type {
         if pt == "whatsapp" {
             // WhatsApp filename pattern: [A-Z]{3}-\d{8}-WA\d{4}\.\w+
             // SQLite GLOB pattern: [A-Z][A-Z][A-Z]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-WA[0-9][0-9][0-9][0-9].*
@@ -259,7 +284,7 @@ pub fn search_assets(conn: &Connection, q: &str, from: Option<i64>, to: Option<i
     }
     let where_sql = if where_clauses.is_empty() { String::new() } else { format!("WHERE {}", where_clauses.join(" AND ")) };
     let count_sql = format!("SELECT COUNT(*) FROM assets {}", where_sql);
-    let total: i64 = conn.query_row(&count_sql, rusqlite::params_from_iter(params.clone()), |r| r.get(0))?;
+    let total: i64 = conn.query_row(&count_sql, rusqlite::params_from_iter(params_vec.clone()), |r| r.get(0))?;
     
     // Calculate match type counts
     // For text queries: calculate filename/dirname/path breakdown
@@ -291,7 +316,7 @@ pub fn search_assets(conn: &Connection, q: &str, from: Option<i64>, to: Option<i
         
         // Count filename matches
         let filename_count_sql = format!("SELECT COUNT(*) FROM assets {}", filename_where);
-        let filename_count: i64 = match conn.query_row(&filename_count_sql, rusqlite::params_from_iter(params.clone()), |r| r.get(0)) {
+        let filename_count: i64 = match conn.query_row(&filename_count_sql, rusqlite::params_from_iter(params_vec.clone()), |r| r.get(0)) {
             Ok(count) => count,
             Err(e) => {
                 eprintln!("Error counting filename matches: {}", e);
@@ -301,7 +326,7 @@ pub fn search_assets(conn: &Connection, q: &str, from: Option<i64>, to: Option<i
         
         // Count dirname matches (excluding filename matches)
         let dirname_count_sql = format!("SELECT COUNT(*) FROM assets {}", dirname_where);
-        let dirname_count: i64 = match conn.query_row(&dirname_count_sql, rusqlite::params_from_iter(params.clone()), |r| r.get(0)) {
+        let dirname_count: i64 = match conn.query_row(&dirname_count_sql, rusqlite::params_from_iter(params_vec.clone()), |r| r.get(0)) {
             Ok(count) => count,
             Err(e) => {
                 eprintln!("Error counting dirname matches: {}", e);
@@ -311,7 +336,7 @@ pub fn search_assets(conn: &Connection, q: &str, from: Option<i64>, to: Option<i
         
         // Count path matches (excluding filename and dirname matches)
         let path_count_sql = format!("SELECT COUNT(*) FROM assets {}", path_where);
-        let path_count: i64 = match conn.query_row(&path_count_sql, rusqlite::params_from_iter(params.clone()), |r| r.get(0)) {
+        let path_count: i64 = match conn.query_row(&path_count_sql, rusqlite::params_from_iter(params_vec.clone()), |r| r.get(0)) {
             Ok(count) => count,
             Err(e) => {
                 eprintln!("Error counting path matches: {}", e);
@@ -366,9 +391,9 @@ pub fn search_assets(conn: &Connection, q: &str, from: Option<i64>, to: Option<i
         "SELECT * FROM assets {} ORDER BY {} LIMIT ? OFFSET ?",
         where_sql, order_by_clause
     );
-    let mut all_params = params.clone();
-    all_params.push((limit as i64).into());
-    all_params.push((offset as i64).into());
+    let mut all_params = params_vec.clone();
+    all_params.push((params.limit as i64).into());
+    all_params.push((params.offset as i64).into());
     let mut stmt = conn.prepare(&list_sql)?;
     let items = stmt.query_map(rusqlite::params_from_iter(all_params.into_iter()), row_to_asset)?.collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(SearchResult { total, items, match_counts })
@@ -394,7 +419,7 @@ pub fn get_thumb_info(conn: &Connection, id: i64) -> Result<(Option<String>, Str
 
 /// Check if a file is unchanged (path and mtime match)
 /// Returns Some(id, xxh64, sha256) if unchanged, None if changed or not found
-pub fn check_file_unchanged(conn: &Connection, path: &str, mtime_ns: i64, size_bytes: i64) -> Result<Option<(i64, Option<i64>, Option<Vec<u8>>)>> {
+pub fn check_file_unchanged(conn: &Connection, path: &str, mtime_ns: i64, size_bytes: i64) -> Result<Option<FileUnchangedInfo>> {
     let mut stmt = conn.prepare("SELECT id, xxh64, sha256 FROM assets WHERE path = ? AND mtime_ns = ? AND size_bytes = ?")?;
     let mut rows = stmt.query(params![path, mtime_ns, size_bytes])?;
     if let Some(row) = rows.next()? {
@@ -597,7 +622,7 @@ pub fn get_person_representative_face(conn: &Connection, person_id: i64) -> Resu
 }
 
 #[cfg(feature = "facial-recognition")]
-pub fn get_asset_faces(conn: &Connection, asset_id: i64) -> Result<Vec<(i64, Option<i64>, String, f64)>> {
+pub fn get_asset_faces(conn: &Connection, asset_id: i64) -> Result<Vec<FaceInfo>> {
     let mut stmt = conn.prepare("SELECT id, person_id, bbox_json, confidence FROM face_embeddings WHERE asset_id = ?")?;
     let faces = stmt.query_map(params![asset_id], |row| {
         Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
@@ -606,7 +631,7 @@ pub fn get_asset_faces(conn: &Connection, asset_id: i64) -> Result<Vec<(i64, Opt
 }
 
 #[cfg(feature = "facial-recognition")]
-pub fn get_all_face_embeddings(conn: &Connection) -> Result<Vec<(i64, i64, Vec<u8>, Option<i64>)>> {
+pub fn get_all_face_embeddings(conn: &Connection) -> Result<Vec<FaceEmbeddingRow>> {
     let mut stmt = conn.prepare("SELECT id, asset_id, embedding_blob, person_id FROM face_embeddings")?;
     let embeddings = stmt.query_map([], |row| {
         Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
@@ -615,7 +640,7 @@ pub fn get_all_face_embeddings(conn: &Connection) -> Result<Vec<(i64, i64, Vec<u
 }
 
 #[cfg(feature = "facial-recognition")]
-pub fn get_unassigned_faces_with_embeddings(conn: &Connection) -> Result<Vec<(i64, i64, Vec<u8>, f64, String)>> {
+pub fn get_unassigned_faces_with_embeddings(conn: &Connection) -> Result<Vec<UnassignedFace>> {
     let mut stmt = conn.prepare("SELECT id, asset_id, embedding_blob, confidence, bbox_json FROM face_embeddings WHERE person_id IS NULL ORDER BY id")?;
     let rows = stmt.query_map([], |row| {
         Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
@@ -680,7 +705,7 @@ pub fn get_person_centroid(conn: &Connection, person_id: i64) -> Result<Option<V
 }
 
 /// List all albums
-pub fn list_albums(conn: &Connection) -> Result<Vec<(i64, String, Option<String>, i64, i64)>> {
+pub fn list_albums(conn: &Connection) -> Result<Vec<AlbumInfo>> {
     let mut stmt = conn.prepare("SELECT id, name, description, created_at, updated_at FROM albums ORDER BY updated_at DESC")?;
     let rows = stmt.query_map([], |row| {
         Ok((
@@ -699,7 +724,7 @@ pub fn list_albums(conn: &Connection) -> Result<Vec<(i64, String, Option<String>
 }
 
 /// Get a single album with its asset IDs
-pub fn get_album(conn: &Connection, album_id: i64) -> Result<Option<(i64, String, Option<String>, i64, i64, Vec<i64>)>> {
+pub fn get_album(conn: &Connection, album_id: i64) -> Result<Option<AlbumDetail>> {
     // Get album info
     let mut stmt = conn.prepare("SELECT id, name, description, created_at, updated_at FROM albums WHERE id = ?1")?;
     let album_info = stmt.query_row(params![album_id], |row| {
@@ -896,7 +921,17 @@ mod tests {
         conn.execute("INSERT INTO fts_assets(rowid, filename, dirname, path) VALUES (1, 'photo1.jpg', '/test', '/test/photo1.jpg')", []).unwrap();
         conn.execute("INSERT INTO fts_assets(rowid, filename, dirname, path) VALUES (2, 'photo2.jpg', '/test', '/test/photo2.jpg')", []).unwrap();
         
-        let result = search_assets(&conn, "photo1", None, None, None, None, None, 0, 10).unwrap();
+        let search_params = SearchParams {
+            q: "photo1",
+            from: None,
+            to: None,
+            camera_make: None,
+            camera_model: None,
+            platform_type: None,
+            offset: 0,
+            limit: 10,
+        };
+        let result = search_assets(&conn, &search_params).unwrap();
         assert_eq!(result.total, 1);
         assert_eq!(result.items.len(), 1);
         assert_eq!(result.items[0].filename, "photo1.jpg");
@@ -917,7 +952,17 @@ mod tests {
             params!["/test/image2.png", "/test", "image2.png", "png", 2000, 2000000, 2000000, "image/png", 0]
         ).unwrap();
         
-        let result = search_assets(&conn, "*.jpg", None, None, None, None, None, 0, 10).unwrap();
+        let search_params = SearchParams {
+            q: "*.jpg",
+            from: None,
+            to: None,
+            camera_make: None,
+            camera_model: None,
+            platform_type: None,
+            offset: 0,
+            limit: 10,
+        };
+        let result = search_assets(&conn, &search_params).unwrap();
         assert_eq!(result.total, 1);
         assert_eq!(result.items[0].ext, "jpg");
     }

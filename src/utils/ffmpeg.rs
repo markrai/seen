@@ -575,7 +575,7 @@ pub fn run_ffmpeg_with_timeout(args: Vec<String>, timeout: Duration) -> Result<s
                     // Wait for readers to finish
                     let _ = stdout_handle.join();
                     let _ = stderr_handle.join();
-                    anyhow::bail!("ffmpeg timeout after {:?}", timeout);
+                    anyhow::bail!("ffmpeg timeout after {:?} (command: {})", timeout, cmd_display);
                 }
                 // Log progress every 5 seconds with more detail
                 let now = Instant::now();
@@ -594,7 +594,7 @@ pub fn run_ffmpeg_with_timeout(args: Vec<String>, timeout: Duration) -> Result<s
                 // Wait for readers to finish
                 let _ = stdout_handle.join();
                 let _ = stderr_handle.join();
-                anyhow::bail!("ffmpeg process error: {}", e);
+                anyhow::bail!("ffmpeg process error after {:?} (command: {}): {}", elapsed, cmd_display, e);
             }
         }
     }

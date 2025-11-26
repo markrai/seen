@@ -124,13 +124,43 @@ async fn main() -> anyhow::Result<()> {
                 let handle = tokio::runtime::Handle::current();
                 #[cfg(feature = "facial-recognition")]
                 {
-                    if let Err(e) = db::writer::run_writer(handle, db_rx, conn2, 4096, tt, gauges2, Some(stats), Some(face_tx_for_writer), Some(face_processor_for_writer), db_path_for_writer) {
+                    let writer_config = db::writer::WriterConfig {
+                        handle,
+                        rx: db_rx,
+                        conn: conn2,
+                        fts_batch_size: 4096,
+                        thumb_tx: tt,
+                        gauges: gauges2,
+                        stats: Some(stats),
+                        #[cfg(feature = "facial-recognition")]
+                        face_tx: Some(face_tx_for_writer),
+                        #[cfg(feature = "facial-recognition")]
+                        face_processor: Some(face_processor_for_writer),
+                        #[cfg(feature = "facial-recognition")]
+                        db_path: Some(db_path_for_writer),
+                    };
+                    if let Err(e) = db::writer::run_writer(writer_config) {
                         eprintln!("CRITICAL: DB writer thread exited with error: {:?}", e);
                     }
                 }
                 #[cfg(not(feature = "facial-recognition"))]
                 {
-                    if let Err(e) = db::writer::run_writer(handle, db_rx, conn2, 4096, tt, gauges2, Some(stats)) {
+                    let writer_config = db::writer::WriterConfig {
+                        handle,
+                        rx: db_rx,
+                        conn: conn2,
+                        fts_batch_size: 4096,
+                        thumb_tx: tt,
+                        gauges: gauges2,
+                        stats: Some(stats),
+                        #[cfg(feature = "facial-recognition")]
+                        face_tx: None,
+                        #[cfg(feature = "facial-recognition")]
+                        face_processor: None,
+                        #[cfg(feature = "facial-recognition")]
+                        db_path: None,
+                    };
+                    if let Err(e) = db::writer::run_writer(writer_config) {
                         eprintln!("CRITICAL: DB writer thread exited with error: {:?}", e);
                     }
                 }

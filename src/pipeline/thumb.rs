@@ -99,20 +99,22 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
                     })
                     .take(5)
                     .collect();
-                if !error_lines.is_empty() {
-                    warn!(
-                        "GPU path failed (exit code: {}) for {}: {}",
-                        output.status.code().unwrap_or(-1),
-                        src,
-                        error_lines.join("; ")
-                    );
+                let error_preview = if !error_lines.is_empty() {
+                    error_lines.join("; ")
                 } else {
-                    debug!(
-                        "GPU path failed (exit code: {}) for {}, falling back to CPU",
-                        output.status.code().unwrap_or(-1),
-                        src
-                    );
-                }
+                    let stderr_preview = stderr.lines().take(3).collect::<Vec<_>>().join("; ");
+                    if stderr_preview.is_empty() {
+                        format!("No error output (exit code: {})", output.status.code().unwrap_or(-1))
+                    } else {
+                        stderr_preview
+                    }
+                };
+                warn!(
+                    "GPU path failed (exit code: {}) for {}: {}, falling back to CPU",
+                    output.status.code().unwrap_or(-1),
+                    src,
+                    error_preview
+                );
                 ffmpeg::record_gpu_failure();
             }
             Err(e) => {
@@ -152,20 +154,22 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
                     })
                     .take(5)
                     .collect();
-                if !error_lines.is_empty() {
-                    warn!(
-                        "CPU path failed (exit code: {}) for {}, trying from start. Error: {}",
-                        output.status.code().unwrap_or(-1),
-                        src,
-                        error_lines.join("; ")
-                    );
+                let error_preview = if !error_lines.is_empty() {
+                    error_lines.join("; ")
                 } else {
-                    debug!(
-                        "CPU path failed (exit code: {}) for {}, trying from start",
-                        output.status.code().unwrap_or(-1),
-                        src
-                    );
-                }
+                    let stderr_preview = stderr.lines().take(3).collect::<Vec<_>>().join("; ");
+                    if stderr_preview.is_empty() {
+                        format!("No error output (exit code: {})", output.status.code().unwrap_or(-1))
+                    } else {
+                        stderr_preview
+                    }
+                };
+                warn!(
+                    "CPU path failed (exit code: {}) for {}, trying from start. Error: {}",
+                    output.status.code().unwrap_or(-1),
+                    src,
+                    error_preview
+                );
                 // Try at the start of the video if seeking failed
                 let mut new_args = Vec::new();
                 let mut skip_next = false;
@@ -244,7 +248,12 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
                     let error_msg = if !error_lines.is_empty() {
                         error_lines.join("; ")
                     } else {
-                        stderr.lines().take(5).collect::<Vec<_>>().join("; ")
+                        let stderr_preview = stderr.lines().take(5).collect::<Vec<_>>().join("; ");
+                        if stderr_preview.is_empty() {
+                            format!("No error output available (exit code: {})", output2.status.code().unwrap_or(-1))
+                        } else {
+                            stderr_preview
+                        }
                     };
                     warn!(
                         "ffmpeg failed to extract video frame from {} (exit code: {}). Error: {}",
@@ -252,12 +261,12 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
                         output2.status.code().unwrap_or(-1),
                         error_msg
                     );
-                    anyhow::bail!("ffmpeg failed to extract video frame: {}", error_msg);
+                    anyhow::bail!("ffmpeg failed to extract video frame from {}: {}", src, error_msg);
                 }
             }
             Err(e) => {
                 warn!("ffmpeg error for {}: {}", src, e);
-                anyhow::bail!("ffmpeg failed: {}", e);
+                anyhow::bail!("ffmpeg failed for {}: {}", src, e);
             }
         }
     }
@@ -265,7 +274,9 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
     if let Some(data) = frame_data {
         if data.is_empty() {
             warn!("ffmpeg extracted empty frame for {} (all extraction paths exhausted)", src);
-            anyhow::bail!("ffmpeg extracted empty frame: all extraction paths (GPU, CPU, minimal) failed");
+            debug!("Frame extraction summary for {}: GPU attempted={}, CPU attempted={}, minimal attempted={}", 
+                   src, config.enabled, true, true);
+            anyhow::bail!("ffmpeg extracted empty frame for {}: all extraction paths (GPU, CPU, minimal) failed", src);
         }
         #[cfg(not(target_env = "msvc"))]
         {
@@ -302,7 +313,8 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
             Ok(())
         }
     } else {
-        anyhow::bail!("Failed to extract video frame for {}", src);
+        warn!("All video frame extraction paths failed for {}", src);
+        anyhow::bail!("Failed to extract video frame for {}: all extraction paths (GPU, CPU, minimal) exhausted", src);
     }
 }
 

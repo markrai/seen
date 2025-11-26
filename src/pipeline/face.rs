@@ -57,6 +57,9 @@ pub struct FaceProcessor {
 }
 
 #[cfg(feature = "facial-recognition")]
+pub type ScrfdPreprocessResult = ([i64; 4], Vec<f32>, f32, f32, f32);
+
+#[cfg(feature = "facial-recognition")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FaceBbox {
     pub x1: f32,
@@ -222,7 +225,7 @@ impl FaceProcessor {
         Ok(())
     }
 
-    fn preprocess_scrfd(&self, image: &DynamicImage) -> Result<([i64; 4], Vec<f32>, f32, f32, f32)> {
+    fn preprocess_scrfd(&self, image: &DynamicImage) -> Result<ScrfdPreprocessResult> {
         // Resize with padding to 640x640 (NCHW), normalize to [-1, 1]
         let (ow, oh) = (image.width() as f32, image.height() as f32);
         let scale = 640.0 / ow.max(oh);
@@ -617,7 +620,10 @@ impl FaceProcessor {
                 }
             }
         } else {
-            error!("No output keys found in ArcFace model output");
+            error!("No output keys found in ArcFace model output (available keys: {:?})", outputs.keys().collect::<Vec<_>>());
+            // Return empty vector rather than erroring - this allows the pipeline to continue
+            // even if face recognition fails for a single image
+            warn!("ArcFace model produced no valid output, skipping face embedding extraction");
         }
         Ok(vec![])
     }
@@ -1049,7 +1055,7 @@ pub async fn start_face_workers(
                                                     pid
                                                 },
                                                 Err(e) => {
-                                                    error!("Failed to create person: {}", e);
+                                                    error!("Failed to create person for asset {}: {}", job.asset_id, e);
                                                     continue;
                                                 },
                                             };
@@ -1070,7 +1076,7 @@ pub async fn start_face_workers(
                                     if let Ok(Some((persons, faces))) = result {
                                         info!("Clustering persisted: {} persons, {} faces", persons, faces);
                                     } else {
-                                        error!("Clustering task failed or returned no result");
+                                        error!("Clustering task failed or returned no result for asset {}", job.asset_id);
                                     }
                                 });
                             }

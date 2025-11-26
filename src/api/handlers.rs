@@ -523,7 +523,17 @@ pub async fn assets_search(State(state): State<Arc<AppState>>, Query(qs): Query<
     let dbp = state.db_path.clone();
     let res = tokio::task::spawn_blocking(move || {
         let conn = Connection::open(dbp).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        crate::db::query::search_assets(&conn, &qs.q, qs.from, qs.to, qs.camera_make.as_deref(), qs.camera_model.as_deref(), qs.platform_type.as_deref(), offset, limit).map_err(|e| anyhow::anyhow!(e.to_string()))
+        let search_params = crate::db::query::SearchParams {
+            q: &qs.q,
+            from: qs.from,
+            to: qs.to,
+            camera_make: qs.camera_make.as_deref(),
+            camera_model: qs.camera_model.as_deref(),
+            platform_type: qs.platform_type.as_deref(),
+            offset,
+            limit,
+        };
+        crate::db::query::search_assets(&conn, &search_params).map_err(|e| anyhow::anyhow!(e.to_string()))
     }).await;
     match res { Ok(Ok(p)) => (StatusCode::OK, Json(p)).into_response(), _ => StatusCode::INTERNAL_SERVER_ERROR.into_response() }
 }
