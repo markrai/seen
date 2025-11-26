@@ -85,15 +85,22 @@ pub fn start_workers(n: usize, mut rx: Receiver<MetaJob>, tx: Sender<DbWriteItem
 
                 if job.job.mime.starts_with("image/") {
                     // Move blocking libvips calls to a blocking thread to avoid stalling the async runtime.
-                    let path = job.job.path.clone();
-                    if let Ok(Ok((w, h))) = tokio::task::spawn_blocking(move || {
-                        libvips::VipsImage::new_from_file(path.to_string_lossy().as_ref())
-                            .map(|img| (img.get_width() as i64, img.get_height() as i64))
-                    })
-                    .await
+                    #[cfg(not(target_env = "msvc"))]
                     {
-                        width = Some(w);
-                        height = Some(h);
+                        let path = job.job.path.clone();
+                        if let Ok(Ok((w, h))) = tokio::task::spawn_blocking(move || {
+                            libvips::VipsImage::new_from_file(path.to_string_lossy().as_ref())
+                                .map(|img| (img.get_width() as i64, img.get_height() as i64))
+                        })
+                        .await
+                        {
+                            width = Some(w);
+                            height = Some(h);
+                        }
+                    }
+                    #[cfg(target_env = "msvc")]
+                    {
+                        // libvips not available on Windows MSVC - skip image dimension extraction
                     }
                 } else if job.job.mime.starts_with("video/") {
                     let (w, h, d, codec) = probe_video(&job.job.path.to_string_lossy()).await;

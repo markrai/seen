@@ -487,6 +487,79 @@ pub fn delete_asset_by_path(conn: &Connection, path: &str) -> Result<bool> {
     Ok(deleted > 0)
 }
 
+/// Find an asset by filename and size that doesn't exist at its stored path
+/// Returns the old path if found, None otherwise
+pub fn find_moved_asset(conn: &Connection, filename: &str, size_bytes: i64) -> Result<Option<String>> {
+    use std::path::Path;
+    
+    let mut stmt = conn.prepare("SELECT path FROM assets WHERE filename = ? AND size_bytes = ?")?;
+    let rows = stmt.query_map(params![filename, size_bytes], |row| {
+        Ok(row.get::<_, String>(0)?)
+    })?;
+    
+    for path_result in rows {
+        let path = path_result?;
+        let path_obj = Path::new(&path);
+        // Check if the file doesn't exist at the stored path
+        if !path_obj.exists() {
+            return Ok(Some(path));
+        }
+    }
+    
+    Ok(None)
+}
+
+/// Update an asset's path (for file moves/renames) in both assets and fts_assets tables
+pub fn update_asset_path(conn: &Connection, old_path: &str, new_path: &str) -> Result<bool> {
+    use std::path::Path;
+    
+    // Extract dirname and filename from new path
+    let new_path_obj = Path::new(new_path);
+    let dirname = new_path_obj
+        .parent()
+        .and_then(|p| p.to_str())
+        .unwrap_or("")
+        .to_string();
+    let filename = new_path_obj
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string();
+    
+    // Use transaction for atomicity
+    let tx = conn.unchecked_transaction()?;
+    
+    // First get the id to update in FTS
+    let id: Option<i64> = tx.query_row("SELECT id FROM assets WHERE path = ?", params![old_path], |r| r.get(0)).ok();
+    
+    if id.is_none() {
+        // Asset not found - return false
+        return Ok(false);
+    }
+    
+    // Update assets table
+    let updated = tx.execute(
+        "UPDATE assets SET path = ?1, dirname = ?2, filename = ?3 WHERE path = ?4",
+        params![new_path, dirname, filename, old_path],
+    )?;
+    
+    if updated == 0 {
+        tx.rollback()?;
+        return Ok(false);
+    }
+    
+    // Update FTS table if we found an id
+    if let Some(asset_id) = id {
+        let _ = tx.execute(
+            "UPDATE fts_assets SET path = ?1, dirname = ?2, filename = ?3 WHERE rowid = ?4",
+            params![new_path, dirname, filename, asset_id],
+        );
+    }
+    
+    tx.commit()?;
+    Ok(true)
+}
+
 // Face and Person query functions
 #[cfg(feature = "facial-recognition")]
 pub fn list_persons(conn: &Connection) -> Result<Vec<(i64, Option<String>, i64)>> {
@@ -668,4 +741,248 @@ pub fn get_albums_for_asset(conn: &Connection, asset_id: i64) -> Result<Vec<i64>
         album_ids.push(row?);
     }
     Ok(album_ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+    use tempfile::TempDir;
+
+    fn setup_test_db() -> (TempDir, Connection) {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let conn = db::open_or_create(&db_path).unwrap();
+        (tmp, conn)
+    }
+
+    #[test]
+    fn test_count_assets_empty() {
+        let (_tmp, conn) = setup_test_db();
+        let count = count_assets(&conn).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_list_assets_empty() {
+        let (_tmp, conn) = setup_test_db();
+        let result = list_assets(&conn, 0, 10, "none", "desc").unwrap();
+        assert_eq!(result.total, 0);
+        assert_eq!(result.items.len(), 0);
+    }
+
+    #[test]
+    fn test_list_assets_pagination() {
+        let (_tmp, conn) = setup_test_db();
+        
+        // Insert test assets
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/1.jpg", "/test", "1.jpg", "jpg", 1000, 1000000, 1000000, "image/jpeg", 0]
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/2.jpg", "/test", "2.jpg", "jpg", 2000, 2000000, 2000000, "image/jpeg", 0]
+        ).unwrap();
+
+        let result = list_assets(&conn, 0, 1, "none", "desc").unwrap();
+        assert_eq!(result.total, 2);
+        assert_eq!(result.items.len(), 1);
+        
+        let result = list_assets(&conn, 1, 1, "none", "desc").unwrap();
+        assert_eq!(result.total, 2);
+        assert_eq!(result.items.len(), 1);
+    }
+
+    #[test]
+    fn test_list_assets_sorting() {
+        let (_tmp, conn) = setup_test_db();
+        
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/a.jpg", "/test", "a.jpg", "jpg", 1000, 1000000, 1000000, "image/jpeg", 0]
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/b.jpg", "/test", "b.jpg", "jpg", 2000, 2000000, 2000000, "image/jpeg", 0]
+        ).unwrap();
+
+        let result = list_assets(&conn, 0, 10, "filename", "asc").unwrap();
+        assert_eq!(result.items[0].filename, "a.jpg");
+        
+        let result = list_assets(&conn, 0, 10, "filename", "desc").unwrap();
+        assert_eq!(result.items[0].filename, "b.jpg");
+    }
+
+    #[test]
+    fn test_get_asset_by_id() {
+        let (_tmp, conn) = setup_test_db();
+        
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/1.jpg", "/test", "1.jpg", "jpg", 1000, 1000000, 1000000, "image/jpeg", 0]
+        ).unwrap();
+        
+        let id: i64 = conn.query_row("SELECT id FROM assets WHERE path = ?", params!["/test/1.jpg"], |r| r.get(0)).unwrap();
+        
+        let asset = get_asset_by_id(&conn, id).unwrap();
+        assert!(asset.is_some());
+        assert_eq!(asset.unwrap().path, "/test/1.jpg");
+        
+        let asset = get_asset_by_id(&conn, 99999).unwrap();
+        assert!(asset.is_none());
+    }
+
+    #[test]
+    fn test_get_asset_path() {
+        let (_tmp, conn) = setup_test_db();
+        
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/1.jpg", "/test", "1.jpg", "jpg", 1000, 1000000, 1000000, "image/jpeg", 0]
+        ).unwrap();
+        
+        let id: i64 = conn.query_row("SELECT id FROM assets WHERE path = ?", params!["/test/1.jpg"], |r| r.get(0)).unwrap();
+        
+        let path = get_asset_path(&conn, id).unwrap();
+        assert_eq!(path, Some("/test/1.jpg".to_string()));
+        
+        let path = get_asset_path(&conn, 99999).unwrap();
+        assert_eq!(path, None);
+    }
+
+    #[test]
+    fn test_delete_asset_by_id() {
+        let (_tmp, conn) = setup_test_db();
+        
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/1.jpg", "/test", "1.jpg", "jpg", 1000, 1000000, 1000000, "image/jpeg", 0]
+        ).unwrap();
+        
+        let id: i64 = conn.query_row("SELECT id FROM assets WHERE path = ?", params!["/test/1.jpg"], |r| r.get(0)).unwrap();
+        
+        let deleted = delete_asset_by_id(&conn, id).unwrap();
+        assert!(deleted);
+        
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM assets", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
+        
+        let deleted = delete_asset_by_id(&conn, 99999).unwrap();
+        assert!(!deleted);
+    }
+
+    #[test]
+    fn test_search_assets_simple() {
+        let (_tmp, conn) = setup_test_db();
+        
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/photo1.jpg", "/test", "photo1.jpg", "jpg", 1000, 1000000, 1000000, "image/jpeg", 0]
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/photo2.jpg", "/test", "photo2.jpg", "jpg", 2000, 2000000, 2000000, "image/jpeg", 0]
+        ).unwrap();
+        
+        // Update FTS table
+        conn.execute("INSERT INTO fts_assets(rowid, filename, dirname, path) VALUES (1, 'photo1.jpg', '/test', '/test/photo1.jpg')", []).unwrap();
+        conn.execute("INSERT INTO fts_assets(rowid, filename, dirname, path) VALUES (2, 'photo2.jpg', '/test', '/test/photo2.jpg')", []).unwrap();
+        
+        let result = search_assets(&conn, "photo1", None, None, None, None, None, 0, 10).unwrap();
+        assert_eq!(result.total, 1);
+        assert_eq!(result.items.len(), 1);
+        assert_eq!(result.items[0].filename, "photo1.jpg");
+    }
+
+    #[test]
+    fn test_search_assets_wildcard() {
+        let (_tmp, conn) = setup_test_db();
+        
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/photo1.jpg", "/test", "photo1.jpg", "jpg", 1000, 1000000, 1000000, "image/jpeg", 0]
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/image2.png", "/test", "image2.png", "png", 2000, 2000000, 2000000, "image/png", 0]
+        ).unwrap();
+        
+        let result = search_assets(&conn, "*.jpg", None, None, None, None, None, 0, 10).unwrap();
+        assert_eq!(result.total, 1);
+        assert_eq!(result.items[0].ext, "jpg");
+    }
+
+    #[test]
+    fn test_check_file_unchanged() {
+        let (_tmp, conn) = setup_test_db();
+        
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/1.jpg", "/test", "1.jpg", "jpg", 1000, 1000000, 1000000, "image/jpeg", 0]
+        ).unwrap();
+        
+        let result = check_file_unchanged(&conn, "/test/1.jpg", 1000000, 1000).unwrap();
+        assert!(result.is_some());
+        
+        let result = check_file_unchanged(&conn, "/test/1.jpg", 2000000, 1000).unwrap();
+        assert!(result.is_none());
+        
+        let result = check_file_unchanged(&conn, "/test/nonexistent.jpg", 1000000, 1000).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_metadata_complete() {
+        let (_tmp, conn) = setup_test_db();
+        
+        // Image with complete metadata
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, width, height, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params!["/test/1.jpg", "/test", "1.jpg", "jpg", 1000, 1000000, 1000000, 1920, 1080, "image/jpeg", 0]
+        ).unwrap();
+        let id: i64 = conn.query_row("SELECT id FROM assets WHERE path = ?", params!["/test/1.jpg"], |r| r.get(0)).unwrap();
+        
+        assert!(check_metadata_complete(&conn, id, "image/jpeg").unwrap());
+        
+        // Image without metadata
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags) VALUES 
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params!["/test/2.jpg", "/test", "2.jpg", "jpg", 1000, 1000000, 1000000, "image/jpeg", 0]
+        ).unwrap();
+        let id2: i64 = conn.query_row("SELECT id FROM assets WHERE path = ?", params!["/test/2.jpg"], |r| r.get(0)).unwrap();
+        
+        assert!(!check_metadata_complete(&conn, id2, "image/jpeg").unwrap());
+    }
+
+    #[test]
+    fn test_get_scan_paths() {
+        let (_tmp, conn) = setup_test_db();
+        
+        let paths = get_scan_paths(&conn).unwrap();
+        assert_eq!(paths.len(), 0);
+        
+        conn.execute(
+            "INSERT INTO scan_paths (path, created_at) VALUES (?1, ?2)",
+            params!["/test/path1", 1000000]
+        ).unwrap();
+        
+        let paths = get_scan_paths(&conn).unwrap();
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0], "/test/path1");
+    }
 }

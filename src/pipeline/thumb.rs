@@ -22,10 +22,39 @@ fn thumb_path(derived: &Path, sha_hex: &str, size: i32) -> PathBuf {
     derived.join(sub).join(format!("{}-{}.webp", sha_hex, size))
 }
 
+#[cfg(not(target_env = "msvc"))]
 fn image_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
     let img = libvips::VipsImage::new_from_file(src)?;
     let out = libvips::ops::thumbnail_image(&img, size)?;
     out.image_write_to_file(dst.to_string_lossy().as_ref())?;
+    Ok(())
+}
+
+#[cfg(target_env = "msvc")]
+fn image_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
+    use image::DynamicImage;
+    
+    // Load image using image crate
+    let img = image::open(src)
+        .map_err(|e| anyhow::anyhow!("Failed to decode image: {}", e))?;
+    
+    // Resize maintaining aspect ratio
+    let resized = img.thumbnail(size as u32, size as u32);
+    
+    // Convert to RGB8 if needed
+    let rgb8 = match resized {
+        DynamicImage::ImageRgb8(img) => img,
+        img => img.to_rgb8(),
+    };
+    
+    // Encode as WebP
+    let encoder = webp::Encoder::from_rgb(&rgb8, rgb8.width(), rgb8.height());
+    let webp_data = encoder.encode(85.0); // Quality 85 (0-100)
+    
+    // Write to file - WebPMemory implements AsRef<[u8]>
+    std::fs::write(dst, webp_data.as_ref())
+        .map_err(|e| anyhow::anyhow!("Failed to write WebP file: {}", e))?;
+    
     Ok(())
 }
 
@@ -194,9 +223,40 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
             warn!("ffmpeg extracted empty frame for {}", src);
             anyhow::bail!("ffmpeg extracted empty frame");
         }
-        let img = libvips::VipsImage::new_from_buffer(&data, "")?;
-        img.image_write_to_file(dst.to_string_lossy().as_ref())?;
-        Ok(())
+        #[cfg(not(target_env = "msvc"))]
+        {
+            let img = libvips::VipsImage::new_from_buffer(&data, "")?;
+            img.image_write_to_file(dst.to_string_lossy().as_ref())?;
+            Ok(())
+        }
+        #[cfg(target_env = "msvc")]
+        {
+            // Use image crate to convert ffmpeg output to WebP
+            use image::DynamicImage;
+            
+            // Decode the JPEG/MJPEG frame from ffmpeg using image crate
+            let img = image::load_from_memory(&data)
+                .map_err(|e| anyhow::anyhow!("Failed to decode frame: {}", e))?;
+            
+            // Resize maintaining aspect ratio
+            let resized = img.thumbnail(size as u32, size as u32);
+            
+            // Convert to RGB8 if needed
+            let rgb8 = match resized {
+                DynamicImage::ImageRgb8(img) => img,
+                img => img.to_rgb8(),
+            };
+            
+            // Encode as WebP
+            let encoder = webp::Encoder::from_rgb(&rgb8, rgb8.width(), rgb8.height());
+            let webp_data = encoder.encode(85.0);
+            
+            // Write to file - WebPMemory implements AsRef<[u8]>
+            std::fs::write(dst, webp_data.as_ref())
+                .map_err(|e| anyhow::anyhow!("Failed to write WebP file: {}", e))?;
+            
+            Ok(())
+        }
     } else {
         anyhow::bail!("Failed to extract video frame for {}", src);
     }
@@ -258,10 +318,24 @@ pub fn start_workers(n: usize, mut rx: Receiver<ThumbJob>, derived: PathBuf, thu
                     if is_image {
                         let _ = tokio::task::spawn_blocking(move || {
                             if !p1_exists {
-                                let _ = image_make_thumb(&src_clone, &p1_clone, thumb_size);
+                                match image_make_thumb(&src_clone, &p1_clone, thumb_size) {
+                                    Ok(()) => {
+                                        debug!("Successfully created thumbnail for {}: {:?}", src_clone, p1_clone);
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to create thumbnail for {}: {}", src_clone, e);
+                                    }
+                                }
                             }
                             if !p2_exists {
-                                let _ = image_make_thumb(&src_clone, &p2_clone, preview_size);
+                                match image_make_thumb(&src_clone, &p2_clone, preview_size) {
+                                    Ok(()) => {
+                                        debug!("Successfully created preview for {}: {:?}", src_clone, p2_clone);
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to create preview for {}: {}", src_clone, e);
+                                    }
+                                }
                             }
                         })
                         .await;

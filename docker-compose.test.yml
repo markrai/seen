@@ -1,0 +1,21 @@
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      # Mount source code for live editing (optional)
+      - .:/app
+      # Cache cargo registry and target directory
+      - cargo-cache:/usr/local/cargo/registry
+      - target-cache:/app/target
+    environment:
+      - RUST_LOG=info
+      - CARGO_TERM_COLOR=always
+    # Override command to run specific tests if needed
+    # Example: command: cargo test --test smoke --verbose
+
+volumes:
+  cargo-cache:
+  target-cache:
+

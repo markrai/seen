@@ -155,3 +155,70 @@ pub fn start_workers(n: usize, mut rx: Receiver<HashJob>, tx: Sender<MetaJob>, g
         let _ = distributor.await;
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_hash_file_small() {
+        let tmp = TempDir::new().unwrap();
+        let test_file = tmp.path().join("test.txt");
+        std::fs::write(&test_file, b"test content").unwrap();
+        
+        let (xxh64, sha256) = hash_file(&test_file, 12, "text/plain").unwrap();
+        
+        assert!(xxh64 != 0);
+        assert!(sha256.is_some());
+        assert_eq!(sha256.unwrap().len(), 32); // SHA256 is 32 bytes
+    }
+
+    #[test]
+    fn test_hash_file_large() {
+        let tmp = TempDir::new().unwrap();
+        let test_file = tmp.path().join("test_large.bin");
+        
+        // Create a 10MB file
+        let mut file = std::fs::File::create(&test_file).unwrap();
+        let chunk = vec![0u8; 1024 * 1024]; // 1MB chunk
+        for _ in 0..10 {
+            std::io::Write::write_all(&mut file, &chunk).unwrap();
+        }
+        file.sync_all().unwrap();
+        
+        let size = std::fs::metadata(&test_file).unwrap().len() as i64;
+        let (xxh64, sha256) = hash_file(&test_file, size, "application/octet-stream").unwrap();
+        
+        assert!(xxh64 != 0);
+        // Large files should still have SHA256 if under 64MB
+        assert!(sha256.is_some());
+    }
+
+    #[test]
+    fn test_hash_file_video() {
+        let tmp = TempDir::new().unwrap();
+        let test_file = tmp.path().join("test.mp4");
+        std::fs::write(&test_file, b"fake video content").unwrap();
+        
+        // Videos should always get SHA256
+        let (xxh64, sha256) = hash_file(&test_file, 18, "video/mp4").unwrap();
+        
+        assert!(xxh64 != 0);
+        assert!(sha256.is_some());
+    }
+
+    #[test]
+    fn test_hash_file_consistency() {
+        let tmp = TempDir::new().unwrap();
+        let test_file = tmp.path().join("test.txt");
+        let content = b"test content for consistency";
+        std::fs::write(&test_file, content).unwrap();
+        
+        let (xxh64_1, sha256_1) = hash_file(&test_file, content.len() as i64, "text/plain").unwrap();
+        let (xxh64_2, sha256_2) = hash_file(&test_file, content.len() as i64, "text/plain").unwrap();
+        
+        assert_eq!(xxh64_1, xxh64_2);
+        assert_eq!(sha256_1, sha256_2);
+    }
+}

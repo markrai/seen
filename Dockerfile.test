@@ -1,0 +1,21 @@
+FROM rust:1-bookworm
+
+# Install dependencies needed for building and testing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libvips-dev \
+    ffmpeg \
+    pkg-config \
+    clang \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy dependency files first for better caching
+COPY Cargo.toml Cargo.lock ./
+
+# Copy source code
+COPY . .
+
+# Run tests
+CMD ["cargo", "test", "--all-features", "--verbose"]
+

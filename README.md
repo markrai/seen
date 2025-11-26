@@ -143,6 +143,36 @@ This version:
 - Faster build times
 - No facial recognition features
 
+#### Windows Native Build (EXE)
+
+Build a native Windows executable for better file watcher support:
+
+```bash
+cargo build --release
+```
+
+**Output:** `target\release\nazr-backend-sqlite.exe`
+
+**Run with batch file (recommended):**
+```bash
+run-nazr-windows.bat
+```
+
+The batch file automatically uses your Windows user's Pictures folder (`%USERPROFILE%\Pictures`).
+
+**Or run manually:**
+```bash
+set FLASH_ROOT=%USERPROFILE%\Pictures
+set FLASH_ROOT_HOST=%USERPROFILE%\Pictures
+set FLASH_DATA=.\nazr-data
+set FLASH_PORT=9161
+set RUST_LOG=info
+
+target\release\nazr-backend-sqlite.exe
+```
+
+**Note:** Native Windows builds use the `image` crate for thumbnails (slower than libvips but functional). File watcher works properly on Windows, detecting moves/renames in Explorer. Docker builds are unaffected.
+
 ---
 
 ### Synology NAS Deployment
@@ -343,6 +373,23 @@ volumes:
 ```
 
 With this mapping in place, Nazr can always resolve the real file even when running in a different environment.
+
+## Testing
+
+Tests require a Linux environment and should be run using Docker (even on Windows/macOS):
+
+```bash
+# Run all tests
+docker compose -f docker-compose.test.yml up --build
+
+# Run specific test
+docker compose -f docker-compose.test.yml run --rm test cargo test --test smoke --verbose
+
+# Run without facial-recognition
+docker compose -f docker-compose.test.yml run --rm test cargo test --no-default-features --verbose
+```
+
+**Note**: Tests are not designed to run natively on Windows/macOS. Use Docker for consistent, production-like testing. See `TESTING.md` for detailed documentation.
 
 ## Notes
 

@@ -43,3 +43,64 @@ fn map_host_to_container(raw: &str, host_root: &str, container_root: &Path) -> O
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_resolve_asset_path_exists() {
+        let tmp = TempDir::new().unwrap();
+        let test_file = tmp.path().join("test.jpg");
+        std::fs::write(&test_file, b"test").unwrap();
+        
+        let paths = AppPaths {
+            root: tmp.path().to_path_buf(),
+            root_host: None,
+            data: tmp.path().join("data"),
+            db_path: tmp.path().join("db"),
+            derived: tmp.path().join("derived"),
+        };
+        
+        let resolved = resolve_asset_path(test_file.to_str().unwrap(), &paths);
+        assert_eq!(resolved, test_file);
+    }
+
+    #[test]
+    fn test_resolve_asset_path_with_host_mapping() {
+        let tmp = TempDir::new().unwrap();
+        let container_root = tmp.path().join("container");
+        std::fs::create_dir_all(&container_root).unwrap();
+        let container_file = container_root.join("test.jpg");
+        std::fs::write(&container_file, b"test").unwrap();
+        
+        let host_root = "/host/path";
+        let paths = AppPaths {
+            root: container_root.clone(),
+            root_host: Some(host_root.to_string()),
+            data: tmp.path().join("data"),
+            db_path: tmp.path().join("db"),
+            derived: tmp.path().join("derived"),
+        };
+        
+        let host_path = format!("{}/test.jpg", host_root);
+        let resolved = resolve_asset_path(&host_path, &paths);
+        assert_eq!(resolved, container_file);
+    }
+
+    #[test]
+    fn test_resolve_asset_path_nonexistent() {
+        let tmp = TempDir::new().unwrap();
+        let paths = AppPaths {
+            root: tmp.path().to_path_buf(),
+            root_host: None,
+            data: tmp.path().join("data"),
+            db_path: tmp.path().join("db"),
+            derived: tmp.path().join("derived"),
+        };
+        
+        let resolved = resolve_asset_path("/nonexistent/file.jpg", &paths);
+        assert_eq!(resolved, PathBuf::from("/nonexistent/file.jpg"));
+    }
+}
+

@@ -15,8 +15,6 @@ walkdir = "2"
 jwalk = "0.8"
 notify = "6"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-sha2 = { version = "0.10", features = ["asm"] }  # Use assembly-optimized SHA2 if available
-libvips = "1.6"
 memmap2 = "0.9"  # Memory-mapped files for faster I/O on large files
 which = "5"
 tracing = "0.1"
@@ -48,6 +46,16 @@ rayon = "1.8"
 ort = { version = "2.0.0-rc.10", optional = true, features = ["cuda"] }
 # arroy = { version = "0.1", optional = true }  # Deferred until API is confirmed
 ndarray = { version = "0.15", optional = true }
+
+# Use assembly optimizations on Linux/GCC, but not on Windows MSVC
+# libvips doesn't compile on Windows MSVC, only include on non-Windows
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+sha2 = { version = "0.10", features = ["asm"] }
+libvips = "1.6"
+
+[target.'cfg(target_env = "msvc")'.dependencies]
+sha2 = { version = "0.10" }
+webp = "0.2"  # WebP encoder for Windows thumbnail fallback
 
 [features]
 default = ["facial-recognition"]

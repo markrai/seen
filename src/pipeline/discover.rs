@@ -1,5 +1,5 @@
 use anyhow::Result;
-use notify::{RecommendedWatcher, RecursiveMode, Watcher, EventKind};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher, EventKind, event::ModifyKind};
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc::{Sender, Receiver};
 #[cfg(not(target_os = "linux"))]
@@ -9,7 +9,10 @@ use crate::pipeline::hash::HashJob;
 use crate::pipeline::metadata::MetaJob;
 use crate::pipeline::QueueGauges;
 use std::sync::Arc;
-use tracing::debug;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use tracing::{debug, info};
+use rusqlite::params;
 
 #[derive(Clone, Debug)]
 pub struct DiscoverItem {
@@ -105,6 +108,16 @@ pub(crate) fn discover_item_from_metadata(path: &Path, md: &fs::Metadata) -> Opt
 pub(crate) fn to_discover_item(path: &Path) -> Option<DiscoverItem> {
     let md = fs::metadata(path).ok()?;
     discover_item_from_metadata(path, &md)
+}
+
+#[derive(Clone, Debug)]
+struct RemovedFile {
+    old_path: String,
+    #[allow(dead_code)]
+    filename: String,  // Redundant with HashMap key, kept for clarity
+    #[allow(dead_code)]
+    size_bytes: i64,  // Redundant with HashMap key, kept for clarity
+    removed_at: Instant,
 }
 
 pub fn start_forwarder(mut rx: Receiver<DiscoverItem>, hash_tx: Sender<HashJob>, meta_tx: Option<Sender<MetaJob>>, db_path: Option<PathBuf>, gauges: Arc<QueueGauges>, _stats: Option<Arc<crate::stats::Stats>>) {
@@ -260,6 +273,71 @@ pub async fn watch(root: PathBuf, tx: Sender<DiscoverItem>, db_path: Option<Path
         std::thread::park();
     });
     
+    // Track recently removed files to detect moves (Windows reports moves as Remove + Create)
+    let removed_files: Arc<parking_lot::Mutex<HashMap<(String, i64), RemovedFile>>> = Arc::new(parking_lot::Mutex::new(HashMap::new()));
+    let removed_files_clone = removed_files.clone();
+    let db_path_for_cleanup = db_path.clone();
+    
+    // Track paths that are being updated to avoid duplicate processing
+    let pending_updates: Arc<parking_lot::Mutex<HashMap<String, Instant>>> = Arc::new(parking_lot::Mutex::new(HashMap::new()));
+    
+    // Cleanup task: remove old entries and delete unmatched files from DB
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            let mut removed = removed_files_clone.lock();
+            let now = Instant::now();
+            let mut to_delete = Vec::new();
+            
+            // Find entries older than 10 seconds
+            for (key, file) in removed.iter() {
+                if now.duration_since(file.removed_at) > Duration::from_secs(10) {
+                    to_delete.push((key.clone(), file.old_path.clone()));
+                }
+            }
+            
+            // Delete unmatched files from database
+            if let Some(ref dbp) = db_path_for_cleanup {
+                for (_, old_path) in to_delete.iter() {
+                    let dbp_clone = dbp.clone();
+                    let old_path_clone = old_path.clone();
+                    let old_path_for_log = old_path.clone();
+                    tokio::spawn(async move {
+                        if let Ok(deleted) = tokio::task::spawn_blocking(move || {
+                            if let Ok(conn) = rusqlite::Connection::open(&dbp_clone) {
+                                crate::db::query::delete_asset_by_path(&conn, &old_path_clone)
+                            } else {
+                                Ok(false)
+                            }
+                        }).await {
+                            if let Ok(true) = deleted {
+                                debug!("Deleted unmatched removed file from database: {:?}", old_path_for_log);
+                            }
+                        }
+                    });
+                }
+            }
+            
+            // Remove old entries from cache
+            for (key, _) in to_delete {
+                removed.remove(&key);
+            }
+        }
+    });
+    
+    // Cleanup pending updates
+    let pending_updates_cleanup = pending_updates.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            let mut pending = pending_updates_cleanup.lock();
+            let now = Instant::now();
+            pending.retain(|_, &mut timestamp| now.duration_since(timestamp) < Duration::from_secs(5));
+        }
+    });
+    
     while let Some(res) = evt_rx.recv().await {
         // Check if watcher is paused before processing events
         if let Some(ref paused) = watcher_paused {
@@ -270,11 +348,154 @@ pub async fn watch(root: PathBuf, tx: Sender<DiscoverItem>, db_path: Option<Path
         
         if let Ok(ev) = res {
             match ev.kind {
+                EventKind::Modify(ModifyKind::Name(_)) => {
+                    // Handle file renames/moves
+                    if ev.paths.len() != 2 {
+                        debug!("Rename event with unexpected path count: {} (expected 2), skipping", ev.paths.len());
+                        continue;
+                    }
+                    
+                    let old_path = &ev.paths[0];
+                    let new_path = &ev.paths[1];
+                    
+                    // Validate that the new path is an image/video file
+                    if let Some(item) = to_discover_item(new_path) {
+                        if item.mime.starts_with("image/") || item.mime.starts_with("video/") {
+                            // Update database path instead of deleting and recreating
+                            if let Some(ref dbp) = db_path {
+                                let old_path_str = old_path.to_string_lossy().to_string();
+                                let new_path_str = new_path.to_string_lossy().to_string();
+                                let old_path_str_for_log = old_path_str.clone();
+                                let new_path_str_for_log = new_path_str.clone();
+                                let dbp_clone = dbp.clone();
+                                
+                                tokio::spawn(async move {
+                                    if let Ok(updated) = tokio::task::spawn_blocking(move || {
+                                        if let Ok(conn) = rusqlite::Connection::open(&dbp_clone) {
+                                            crate::db::query::update_asset_path(&conn, &old_path_str, &new_path_str)
+                                        } else {
+                                            Ok(false)
+                                        }
+                                    }).await {
+                                        match updated {
+                                            Ok(true) => {
+                                                debug!("Updated asset path in database: {:?} -> {:?}", old_path_str_for_log, new_path_str_for_log);
+                                            }
+                                            Ok(false) => {
+                                                debug!("Asset not found in database for rename: {:?} -> {:?} (will be handled by Create event)", old_path_str_for_log, new_path_str_for_log);
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!("Failed to update asset path in database: {:?} -> {:?}: {}", old_path_str_for_log, new_path_str_for_log, e);
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                        } else {
+                            debug!("skipping non-image/non-video file rename: {:?} -> {:?} (mime: {})", old_path, new_path, item.mime);
+                        }
+                    } else {
+                        debug!("skipping rename event for non-existent or invalid file: {:?} -> {:?}", old_path, new_path);
+                    }
+                }
                 EventKind::Create(_) | EventKind::Modify(_) => {
                     for p in ev.paths {
                         if let Some(item) = to_discover_item(&p) {
                             // Only process image and video files
                             if item.mime.starts_with("image/") || item.mime.starts_with("video/") {
+                                let new_path_str = item.path.to_string_lossy().to_string();
+                                
+                                // Skip if this path is being updated (move in progress)
+                                {
+                                    let pending = pending_updates.lock();
+                                    if pending.contains_key(&new_path_str) {
+                                        debug!("Skipping create event for path being updated: {:?}", new_path_str);
+                                        continue;
+                                    }
+                                }
+                                
+                                // Check if this might be a move by checking the database directly
+                                // This is more reliable on Windows where Remove+Create events may not be captured correctly
+                                let old_path_opt = if let Some(ref dbp) = db_path {
+                                    let dbp_clone = dbp.clone();
+                                    let filename_clone = item.filename.clone();
+                                    let size_bytes_clone = item.size_bytes;
+                                    let new_path_for_log = new_path_str.clone();
+                                    let filename_for_log = filename_clone.clone();
+                                    
+                                    // Check database for assets with same filename and size that don't exist at their stored path
+                                    let result = tokio::task::spawn_blocking(move || {
+                                        if let Ok(conn) = rusqlite::Connection::open(&dbp_clone) {
+                                            crate::db::query::find_moved_asset(&conn, &filename_clone, size_bytes_clone).ok().flatten()
+                                        } else {
+                                            None
+                                        }
+                                    }).await.ok().flatten();
+                                    
+                                    if result.is_some() {
+                                        debug!("Found potential moved asset in database for: {:?} (filename: {}, size: {})", new_path_for_log, filename_for_log, size_bytes_clone);
+                                    }
+                                    
+                                    result
+                                } else {
+                                    None
+                                };
+                                
+                                // Also check recently removed files cache as a fallback
+                                let key = (item.filename.clone(), item.size_bytes);
+                                let removed_file = {
+                                    let mut removed = removed_files.lock();
+                                    removed.remove(&key)
+                                };
+                                
+                                // Use database check first, then cache check
+                                let old_path_str = old_path_opt.or_else(|| removed_file.map(|rf| rf.old_path));
+                                
+                                if let Some(old_path_str) = old_path_str {
+                                    // This looks like a move - update path instead of creating new
+                                    if let Some(ref dbp) = db_path {
+                                        let new_path_str_clone = new_path_str.clone();
+                                        let old_path_str_for_log = old_path_str.clone();
+                                        let new_path_str_for_log = new_path_str.clone();
+                                        let dbp_clone = dbp.clone();
+                                        let pending_updates_clone = pending_updates.clone();
+                                        
+                                        // Mark as pending update
+                                        {
+                                            let mut pending = pending_updates.lock();
+                                            pending.insert(new_path_str_clone.clone(), Instant::now());
+                                        }
+                                        
+                                        tokio::spawn(async move {
+                                            if let Ok(updated) = tokio::task::spawn_blocking(move || {
+                                                if let Ok(conn) = rusqlite::Connection::open(&dbp_clone) {
+                                                    crate::db::query::update_asset_path(&conn, &old_path_str, &new_path_str_clone)
+                                                } else {
+                                                    Ok(false)
+                                                }
+                                            }).await {
+                                                match updated {
+                                                    Ok(true) => {
+                                                        tracing::info!("Detected move and updated asset path: {:?} -> {:?}", old_path_str_for_log, new_path_str_for_log);
+                                                    }
+                                                    Ok(false) => {
+                                                        debug!("Move detected but asset not found in database: {:?} -> {:?} (treating as new file)", old_path_str_for_log, new_path_str_for_log);
+                                                    }
+                                                    Err(e) => {
+                                                        tracing::warn!("Failed to update asset path for move: {:?} -> {:?}: {}", old_path_str_for_log, new_path_str_for_log, e);
+                                                    }
+                                                }
+                                                // Remove from pending updates
+                                                pending_updates_clone.lock().remove(&new_path_str_for_log);
+                                            }
+                                        });
+                                        
+                                        // Skip creating new asset - update is in progress
+                                        continue;
+                                    }
+                                }
+                                
+                                // Not a move, or move detection failed - treat as new file
                                 // Increment discovery counter when file is detected by watcher
                                 // This ensures files added after Phase 1 are counted in stats
                                 if let Some(ref s) = stats {
@@ -289,30 +510,38 @@ pub async fn watch(root: PathBuf, tx: Sender<DiscoverItem>, db_path: Option<Path
                     }
                 }
                 EventKind::Remove(_) => {
-                    // Handle file deletions - remove from database
+                    // Handle file deletions - store info temporarily to detect moves
                     if let Some(ref dbp) = db_path {
                         for p in ev.paths {
-                            // Check if it's a file (or was a file) and delete from database
                             let path_str = p.to_string_lossy().to_string();
-                            let path_str_for_log = path_str.clone();
                             let dbp_clone = dbp.clone();
-                            let stats_clone = stats.clone();  // Clone stats for async task
-                            use tracing::debug;
+                            let removed_files_clone = removed_files.clone();
+                            
+                            // Check if file exists in database and get its metadata
+                            let path_str_for_log = path_str.clone();
                             tokio::spawn(async move {
-                                if let Ok(deleted) = tokio::task::spawn_blocking(move || {
+                                if let Ok(Some((filename, size_bytes))) = tokio::task::spawn_blocking(move || {
                                     if let Ok(conn) = rusqlite::Connection::open(&dbp_clone) {
-                                        crate::db::query::delete_asset_by_path(&conn, &path_str)
+                                        conn.query_row(
+                                            "SELECT filename, size_bytes FROM assets WHERE path = ?",
+                                            params![&path_str],
+                                            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                                        ).ok()
                                     } else {
-                                        Ok(false)
+                                        None
                                     }
                                 }).await {
-                                    if let Ok(true) = deleted {
-                                        debug!("deleted asset from database: {:?}", path_str_for_log);
-                                        // Decrement files_committed for deleted asset
-                                        if let Some(ref s) = stats_clone {
-                                            s.dec_files_committed(1);
-                                        }
-                                    }
+                                    // Store removed file info to detect moves
+                                    let filename_for_log = filename.clone();
+                                    let key = (filename.clone(), size_bytes);
+                                    let removed_file = RemovedFile {
+                                        old_path: path_str_for_log.clone(),
+                                        filename,
+                                        size_bytes,
+                                        removed_at: Instant::now(),
+                                    };
+                                    removed_files_clone.lock().insert(key, removed_file);
+                                    debug!("Stored removed file info for potential move detection: {:?} (filename: {}, size: {})", path_str_for_log, filename_for_log, size_bytes);
                                 }
                             });
                         }

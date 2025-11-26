@@ -24,7 +24,10 @@ async fn main() -> anyhow::Result<()> {
     let db_path = db_dir.join("nazr.db");
     let conn = db::open_or_create(&db_path)?;
     // Initialize libvips (warnings are suppressed via environment variables set above)
+    #[cfg(not(target_env = "msvc"))]
     let _app = libvips::VipsApp::new("nazr", false)?;
+    #[cfg(target_env = "msvc")]
+    let _app = (); // libvips doesn't compile on Windows MSVC
     
     // Initialize GPU configuration
     let _gpu_config = nazr_backend_sqlite::utils::ffmpeg::init_gpu_config();

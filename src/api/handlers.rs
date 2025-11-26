@@ -9,6 +9,7 @@ use hex;
 use std::path::Path as StdPath;
 use crate::utils::ffmpeg;
 use std::io;
+#[cfg(not(target_env = "msvc"))]
 use libvips::ops::Angle;
 
 pub async fn health() -> impl IntoResponse {
@@ -2498,24 +2499,29 @@ pub async fn save_orientation(State(state): State<Arc<AppState>>, Path(id): Path
             );
         }
 
-        let resolved_str = resolved_path.to_string_lossy();
-        
-        // Load image with libvips
-        let img = libvips::VipsImage::new_from_file(resolved_str.as_ref())?;
-        
-        // Determine rotation angle based on normalized rotation
-        let rotated = match normalized_rotation {
-            90 => libvips::ops::rot(&img, Angle::D90)?,
-            180 => libvips::ops::rot(&img, Angle::D180)?,
-            270 => libvips::ops::rot(&img, Angle::D270)?,
-            _ => img, // 0 degrees, no rotation needed
-        };
-        
-        // Save rotated image back to disk
-        // Use the same format as the original file
-        rotated.image_write_to_file(resolved_str.as_ref())?;
-        
-        Ok(())
+        #[cfg(not(target_env = "msvc"))]
+        {
+            let resolved_str = resolved_path.to_string_lossy();
+            // Load image with libvips
+            let img = libvips::VipsImage::new_from_file(resolved_str.as_ref())?;
+            
+            // Determine rotation angle based on normalized rotation
+            let rotated = match normalized_rotation {
+                90 => libvips::ops::rot(&img, Angle::D90)?,
+                180 => libvips::ops::rot(&img, Angle::D180)?,
+                270 => libvips::ops::rot(&img, Angle::D270)?,
+                _ => img, // 0 degrees, no rotation needed
+            };
+            
+            // Save rotated image back to disk
+            // Use the same format as the original file
+            rotated.image_write_to_file(resolved_str.as_ref())?;
+            Ok(())
+        }
+        #[cfg(target_env = "msvc")]
+        {
+            anyhow::bail!("Image rotation not available on Windows MSVC (libvips not supported)")
+        }
     }).await;
     
     match result {
