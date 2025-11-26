@@ -11,7 +11,7 @@ use crate::pipeline::QueueGauges;
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use tracing::{debug, info};
+use tracing::debug;
 use rusqlite::params;
 
 #[derive(Clone, Debug)]

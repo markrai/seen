@@ -1,7 +1,5 @@
 use anyhow::Result;
-use rusqlite::{Connection, params, Row};
-#[cfg(feature = "facial-recognition")]
-use rusqlite::OptionalExtension;
+use rusqlite::{Connection, params, Row, OptionalExtension};
 use crate::models::asset::{Asset, Paged, SearchResult, SearchMatchCounts};
 
 fn row_to_asset(row: &Row<'_>) -> rusqlite::Result<Asset> {

@@ -115,7 +115,7 @@ pub fn run_writer(handle: tokio::runtime::Handle, rx: Receiver<DbWriteItem>, con
 }
 
 #[cfg(not(feature = "facial-recognition"))]
-pub fn run_writer(handle: tokio::runtime::Handle, mut rx: Receiver<DbWriteItem>, conn: Connection, fts_batch_size: usize, thumb_tx: Sender<ThumbJob>, gauges: Arc<QueueGauges>, stats: Option<Arc<Stats>>) -> Result<()> {
+pub fn run_writer(handle: tokio::runtime::Handle, rx: Receiver<DbWriteItem>, conn: Connection, fts_batch_size: usize, thumb_tx: Sender<ThumbJob>, gauges: Arc<QueueGauges>, stats: Option<Arc<Stats>>) -> Result<()> {
     run_writer_impl(handle, rx, conn, fts_batch_size, thumb_tx, gauges, stats)
 }
 

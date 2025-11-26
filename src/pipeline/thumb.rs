@@ -85,19 +85,33 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
             Ok(output) => {
                 // GPU path failed (non-zero exit), record failure and fallback
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                let error_lines: Vec<&str> = stderr.lines()
-                    .filter(|l| l.contains("error") || l.contains("Error") || l.contains("ERROR") || 
-                                l.contains("Failed") || l.contains("failed") || l.contains("Cannot") ||
-                                l.contains("Impossible") || l.contains("libnvcuvid"))
+                let error_lines: Vec<&str> = stderr
+                    .lines()
+                    .filter(|l| {
+                        l.contains("error")
+                            || l.contains("Error")
+                            || l.contains("ERROR")
+                            || l.contains("Failed")
+                            || l.contains("failed")
+                            || l.contains("Cannot")
+                            || l.contains("Impossible")
+                            || l.contains("libnvcuvid")
+                    })
                     .take(5)
                     .collect();
                 if !error_lines.is_empty() {
-                    warn!("GPU path failed (exit code: {}) for {}: {}", 
-                        output.status.code().unwrap_or(-1), src,
-                        error_lines.join("; "));
+                    warn!(
+                        "GPU path failed (exit code: {}) for {}: {}",
+                        output.status.code().unwrap_or(-1),
+                        src,
+                        error_lines.join("; ")
+                    );
                 } else {
-                    debug!("GPU path failed (exit code: {}) for {}, falling back to CPU", 
-                        output.status.code().unwrap_or(-1), src);
+                    debug!(
+                        "GPU path failed (exit code: {}) for {}, falling back to CPU",
+                        output.status.code().unwrap_or(-1),
+                        src
+                    );
                 }
                 ffmpeg::record_gpu_failure();
             }
@@ -122,19 +136,34 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
             }
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                let error_lines: Vec<&str> = stderr.lines()
-                    .filter(|l| l.contains("error") || l.contains("Error") || l.contains("ERROR") || 
-                                l.contains("Failed") || l.contains("failed") || l.contains("Cannot") ||
-                                l.contains("Impossible") || l.contains("Invalid") || l.contains("No such"))
+                let error_lines: Vec<&str> = stderr
+                    .lines()
+                    .filter(|l| {
+                        l.contains("error")
+                            || l.contains("Error")
+                            || l.contains("ERROR")
+                            || l.contains("Failed")
+                            || l.contains("failed")
+                            || l.contains("Cannot")
+                            || l.contains("Impossible")
+                            || l.contains("Invalid")
+                            || l.contains("No such")
+                    })
                     .take(5)
                     .collect();
                 if !error_lines.is_empty() {
-                    warn!("CPU path failed (exit code: {}) for {}, trying from start. Error: {}", 
-                        output.status.code().unwrap_or(-1), src,
-                        error_lines.join("; "));
+                    warn!(
+                        "CPU path failed (exit code: {}) for {}, trying from start. Error: {}",
+                        output.status.code().unwrap_or(-1),
+                        src,
+                        error_lines.join("; ")
+                    );
                 } else {
-                    debug!("CPU path failed (exit code: {}) for {}, trying from start", 
-                        output.status.code().unwrap_or(-1), src);
+                    debug!(
+                        "CPU path failed (exit code: {}) for {}, trying from start",
+                        output.status.code().unwrap_or(-1),
+                        src
+                    );
                 }
                 // Try at the start of the video if seeking failed
                 let mut new_args = Vec::new();
@@ -194,11 +223,21 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
                 };
                 if frame_data.is_none() {
                     let stderr = String::from_utf8_lossy(&output2.stderr);
-                    let error_lines: Vec<&str> = stderr.lines()
-                        .filter(|l| l.contains("error") || l.contains("Error") || l.contains("ERROR") || 
-                                    l.contains("Failed") || l.contains("failed") || l.contains("Cannot") ||
-                                    l.contains("Impossible") || l.contains("Invalid") || l.contains("No such") ||
-                                    l.contains("not found") || l.contains("codec"))
+                    let error_lines: Vec<&str> = stderr
+                        .lines()
+                        .filter(|l| {
+                            l.contains("error")
+                                || l.contains("Error")
+                                || l.contains("ERROR")
+                                || l.contains("Failed")
+                                || l.contains("failed")
+                                || l.contains("Cannot")
+                                || l.contains("Impossible")
+                                || l.contains("Invalid")
+                                || l.contains("No such")
+                                || l.contains("not found")
+                                || l.contains("codec")
+                        })
                         .take(10)
                         .collect();
                     let error_msg = if !error_lines.is_empty() {
@@ -206,8 +245,12 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
                     } else {
                         stderr.lines().take(5).collect::<Vec<_>>().join("; ")
                     };
-                    warn!("ffmpeg failed to extract video frame from {} (exit code: {}). Error: {}", 
-                        src, output2.status.code().unwrap_or(-1), error_msg);
+                    warn!(
+                        "ffmpeg failed to extract video frame from {} (exit code: {}). Error: {}",
+                        src,
+                        output2.status.code().unwrap_or(-1),
+                        error_msg
+                    );
                     anyhow::bail!("ffmpeg failed to extract video frame: {}", error_msg);
                 }
             }
