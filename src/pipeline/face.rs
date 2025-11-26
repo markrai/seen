@@ -421,19 +421,19 @@ impl FaceProcessor {
                 // Let's try to get the tensors again properly.
                 
                 let (scores, boxes, height, width) = if let (Some(sv), Some(bv)) = (score_tensor_opt, bbox_tensor_opt) {
-                if let (Ok((s_shape, s_data)), Ok((b_shape, b_data))) = (sv.try_extract_tensor::<f32>(), bv.try_extract_tensor::<f32>()) {
-                    // Shape is typically [1, H*W, 1] or [H*W, 1] for scores
-                    // and [1, H*W, 4] or [H*W, 4] for boxes
-                    // We need H and W to generate the grid.
-                    // Since we know the input is 640x640, H=W=640/stride
-                    let h = (640.0 / stride) as usize;
-                    let w = (640.0 / stride) as usize;
-                    info!("SCRFD stride {}: score shape {:?} (len={}), bbox shape {:?} (len={}), expected grid {}x{}", 
-                          stride, s_shape, s_data.len(), b_shape, b_data.len(), w, h);
-                    (s_data, b_data, h, w)
-                } else {
-                    continue;
-                }
+                    if let (Ok((s_shape, s_data)), Ok((b_shape, b_data))) = (sv.try_extract_tensor::<f32>(), bv.try_extract_tensor::<f32>()) {
+                        // Shape is typically [1, H*W, 1] or [H*W, 1] for scores
+                        // and [1, H*W, 4] or [H*W, 4] for boxes
+                        // We need H and W to generate the grid.
+                        // Since we know the input is 640x640, H=W=640/stride
+                        let h = (640.0 / stride) as usize;
+                        let w = (640.0 / stride) as usize;
+                        info!("SCRFD stride {}: score shape {:?} (len={}), bbox shape {:?} (len={}), expected grid {}x{}", 
+                              stride, s_shape, s_data.len(), b_shape, b_data.len(), w, h);
+                        (s_data, b_data, h, w)
+                    } else {
+                        continue;
+                    }
                 } else {
                     // If we are in the fallback case where we found tensors by shape but not name
                     // We need to rely on the fact that we probably only found one set of outputs (stride 8 usually)
@@ -515,36 +515,36 @@ impl FaceProcessor {
                            n_anchors, side, stride, all_boxes.len());
                      
                      for (i, conf) in all_scores.iter().enumerate().take(n_anchors) {
-                        let conf = *conf;
-                        if conf < base_confidence_threshold { continue; }
-                        
-                        let cy = (i / side) as f32 * stride;
-                        let cx = (i % side) as f32 * stride;
-                        
-                        let b = i * 4;
-                        // Bounds check already done above, but use get() for safety
-                        if let (Some(&l), Some(&t), Some(&r), Some(&bb)) = (
-                            all_boxes.get(b),
-                            all_boxes.get(b + 1),
-                            all_boxes.get(b + 2),
-                            all_boxes.get(b + 3),
-                        ) {
-                            let l = l * stride;
-                            let t = t * stride;
-                            let r = r * stride;
-                            let bb = bb * stride;
-                    
-                            let x1 = ((cx - l) / scale).max(0.0).min(img_w);
-                            let y1 = ((cy - t) / scale).max(0.0).min(img_h);
-                            let x2 = ((cx + r) / scale).max(0.0).min(img_w);
-                            let y2 = ((cy + bb) / scale).max(0.0).min(img_h);
-                            
-                            if x2 > x1 && y2 > y1 && (x2-x1) >= 8.0 && (y2-y1) >= 8.0 {
-                                raw.push(FaceBbox { x1, y1, x2, y2, confidence: conf });
-                            }
-                        } else {
-                            warn!("SCRFD fallback: bounds check failed for anchor {} (b={})", i, b);
-                        }
+                         let conf = *conf;
+                         if conf < base_confidence_threshold { continue; }
+                         
+                         let cy = (i / side) as f32 * stride;
+                         let cx = (i % side) as f32 * stride;
+                         
+                         let b = i * 4;
+                         // Bounds check already done above, but use get() for safety
+                         if let (Some(&l), Some(&t), Some(&r), Some(&bb)) = (
+                             all_boxes.get(b),
+                             all_boxes.get(b + 1),
+                             all_boxes.get(b + 2),
+                             all_boxes.get(b + 3),
+                         ) {
+                             let l = l * stride;
+                             let t = t * stride;
+                             let r = r * stride;
+                             let bb = bb * stride;
+                             
+                             let x1 = ((cx - l) / scale).max(0.0).min(img_w);
+                             let y1 = ((cy - t) / scale).max(0.0).min(img_h);
+                             let x2 = ((cx + r) / scale).max(0.0).min(img_w);
+                             let y2 = ((cy + bb) / scale).max(0.0).min(img_h);
+                             
+                             if x2 > x1 && y2 > y1 && (x2-x1) >= 8.0 && (y2-y1) >= 8.0 {
+                                 raw.push(FaceBbox { x1, y1, x2, y2, confidence: conf });
+                             }
+                         } else {
+                             warn!("SCRFD fallback: bounds check failed for anchor {} (b={})", i, b);
+                         }
                      }
                  }
             }
