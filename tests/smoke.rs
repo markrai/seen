@@ -69,7 +69,10 @@ async fn smoke_end_to_end() {
     eprintln!("[TEST] Opening database: {:?}", db_path);
     let conn = nazr_backend_sqlite::db::open_or_create(&db_path).unwrap();
     eprintln!("[TEST] Initializing libvips");
+    #[cfg(not(target_env = "msvc"))]
     let _app = libvips::VipsApp::new("nazr", false).unwrap();
+    #[cfg(target_env = "msvc")]
+    let _app = (); // libvips doesn't compile on Windows MSVC
     eprintln!("[TEST] libvips initialized");
 
     let (discover_tx, discover_rx) = tokio::sync::mpsc::channel::<nazr_backend_sqlite::pipeline::discover::DiscoverItem>(100_000);

@@ -12,7 +12,7 @@ env:
 jobs:
   test:
     name: Test Suite
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
@@ -22,6 +22,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvips-dev pkg-config clang
 
       - name: Cache cargo registry
         uses: actions/cache@v4
