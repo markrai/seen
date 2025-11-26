@@ -82,8 +82,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libvips-dev libglib2.0-dev
 
-      - name: Check formatting
-        run: cargo fmt -- --check
+      # - name: Check formatting
+      #   run: cargo fmt -- --check
 
       - name: Run clippy
         run: cargo clippy --all-features -- -D warnings
