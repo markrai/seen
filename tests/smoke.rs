@@ -100,7 +100,22 @@ async fn smoke_end_to_end() {
         let handle = tokio::runtime::Handle::current();
         std::thread::spawn(move || {
             if let Ok(conn2) = rusqlite::Connection::open(dbp.clone()) {
-                let _ = nazr_backend_sqlite::db::writer::run_writer(handle, db_rx, conn2, 4096, tt, gauges2, Some(stats2), None, None, dbp);
+                let writer_config = nazr_backend_sqlite::db::writer::WriterConfig {
+                    handle,
+                    rx: db_rx,
+                    conn: conn2,
+                    fts_batch_size: 4096,
+                    thumb_tx: tt,
+                    gauges: gauges2,
+                    stats: Some(stats2),
+                    #[cfg(feature = "facial-recognition")]
+                    face_tx: None,
+                    #[cfg(feature = "facial-recognition")]
+                    face_processor: None,
+                    #[cfg(feature = "facial-recognition")]
+                    db_path: Some(dbp),
+                };
+                let _ = nazr_backend_sqlite::db::writer::run_writer(writer_config);
             }
         });
     }

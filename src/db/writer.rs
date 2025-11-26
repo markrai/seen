@@ -150,7 +150,7 @@ pub fn run_writer(config: WriterConfig) -> Result<()> {
     run_writer_impl(config)
 }
 
-fn run_writer_impl(mut config: WriterConfig) -> Result<()> {
+fn run_writer_impl(config: WriterConfig) -> Result<()> {
     let mut rx = config.rx;
     let mut buf: Vec<DbWriteItem> = Vec::with_capacity(4096);
     let mut fts_rows: Vec<FtsRow> = Vec::with_capacity(4096);
