@@ -304,16 +304,14 @@ pub async fn watch(root: PathBuf, tx: Sender<DiscoverItem>, db_path: Option<Path
                     let old_path_clone = old_path.clone();
                     let old_path_for_log = old_path.clone();
                     tokio::spawn(async move {
-                        if let Ok(deleted) = tokio::task::spawn_blocking(move || {
+                        if let Ok(Ok(true)) = tokio::task::spawn_blocking(move || {
                             if let Ok(conn) = rusqlite::Connection::open(&dbp_clone) {
                                 crate::db::query::delete_asset_by_path(&conn, &old_path_clone)
                             } else {
                                 Ok(false)
                             }
                         }).await {
-                            if let Ok(true) = deleted {
-                                debug!("Deleted unmatched removed file from database: {:?}", old_path_for_log);
-                            }
+                            debug!("Deleted unmatched removed file from database: {:?}", old_path_for_log);
                         }
                     });
                 }

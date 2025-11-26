@@ -140,7 +140,8 @@ fn detect_gpu_accel() -> GpuAccel {
             "qsv" => return GpuAccel::Qsv,
             "d3d11va" => return GpuAccel::D3d11va,
             "videotoolbox" => return GpuAccel::VideoToolbox,
-            "auto" | _ => {} // Continue with auto-detection
+            "auto" => {} // Continue with auto-detection
+            _ => {} // Unknown value, continue with auto-detection
         }
     }
 

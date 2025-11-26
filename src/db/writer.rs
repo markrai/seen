@@ -636,8 +636,8 @@ pub fn smart_merge_persons(conn: &Connection, merge_threshold: f32) -> Result<(i
             |row| row.get(0)
         )?;
         
-        for j in (i + 1)..persons.len() {
-            let person_j_id = persons[j].0;
+        for person_j in persons.iter().skip(i + 1) {
+            let person_j_id = person_j.0;
             if merged_person_ids.contains(&person_j_id) {
                 continue;
             }

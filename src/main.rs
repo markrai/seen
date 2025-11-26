@@ -50,13 +50,11 @@ async fn main() -> anyhow::Result<()> {
         let dbp = db_path.clone();
         let stats_clone = stats.clone();
         tokio::spawn(async move {
-            if let Ok(count) = tokio::task::spawn_blocking(move || {
+            if let Ok(Some(count)) = tokio::task::spawn_blocking(move || {
                 let conn = rusqlite::Connection::open(dbp).ok()?;
                 db::query::count_assets(&conn).ok()
             }).await {
-                if let Some(count) = count {
-                    stats_clone.init_files_committed(count as u64);
-                }
+                stats_clone.init_files_committed(count as u64);
             }
         });
     }

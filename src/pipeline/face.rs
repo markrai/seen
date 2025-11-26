@@ -479,8 +479,8 @@ impl FaceProcessor {
                  let stride = 640.0 / side as f32;
                  info!("SCRFD fallback decoding: {} anchors -> side {} -> stride {}", n_anchors, side, stride);
                  
-                 for i in 0..n_anchors {
-                    let conf = all_scores[i];
+                 for (i, conf) in all_scores.iter().enumerate().take(n_anchors) {
+                    let conf = *conf;
                     if conf < base_confidence_threshold { continue; }
                     
                     let cy = (i / side) as f32 * stride;
@@ -747,8 +747,7 @@ fn nms_wrapper(boxes: &[FaceBbox], iou_threshold: f32) -> Vec<usize> {
             continue;
         }
         keep.push(ia);
-        for j in (i + 1)..indices.len() {
-            let ib = indices[j];
+        for &ib in indices.iter().skip(i + 1) {
             if suppressed[ib] {
                 continue;
             }

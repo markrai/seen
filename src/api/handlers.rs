@@ -1666,10 +1666,7 @@ async fn transcode_video_to_mp4_cpu(src_path: &std::path::Path, dst_path: &std::
 
     for (encoder, (container_format, encoder_args)) in encoder_configs {
         // Build FFmpeg args for CPU-only encoding
-        let mut args = Vec::new();
-
-        // Overwrite output file if it exists
-        args.push("-y".to_string());
+        let mut args = vec!["-y".to_string()];
 
         // Add input file
         args.push("-i".to_string());
