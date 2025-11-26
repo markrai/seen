@@ -307,10 +307,13 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
         let write_result = {
             #[cfg(not(target_env = "msvc"))]
             {
-                let img = libvips::VipsImage::new_from_buffer(&data, "")
-                    .map_err(|e| anyhow::anyhow!("Failed to decode frame buffer for {}: {}", src, e))?;
-                img.image_write_to_file(dst.to_string_lossy().as_ref())
-                    .map_err(|e| anyhow::anyhow!("Failed to write thumbnail file for {}: {}", src, e))
+                match libvips::VipsImage::new_from_buffer(&data, "") {
+                    Ok(img) => {
+                        img.image_write_to_file(dst.to_string_lossy().as_ref())
+                            .map_err(|e| anyhow::anyhow!("Failed to write thumbnail file for {}: {}", src, e))
+                    }
+                    Err(e) => Err(anyhow::anyhow!("Failed to decode frame buffer for {}: {}", src, e)),
+                }
             }
             #[cfg(target_env = "msvc")]
             {
@@ -318,25 +321,27 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
                 use image::DynamicImage;
                 
                 // Decode the JPEG/MJPEG frame from ffmpeg using image crate
-                let img = image::load_from_memory(&data)
-                    .map_err(|e| anyhow::anyhow!("Failed to decode frame for {}: {}", src, e))?;
-                
-                // Resize maintaining aspect ratio
-                let resized = img.thumbnail(size as u32, size as u32);
-                
-                // Convert to RGB8 if needed
-                let rgb8 = match resized {
-                    DynamicImage::ImageRgb8(img) => img,
-                    img => img.to_rgb8(),
-                };
-                
-                // Encode as WebP
-                let encoder = webp::Encoder::from_rgb(&rgb8, rgb8.width(), rgb8.height());
-                let webp_data = encoder.encode(85.0);
-                
-                // Write to file - WebPMemory implements AsRef<[u8]>
-                std::fs::write(dst, webp_data.as_ref())
-                    .map_err(|e| anyhow::anyhow!("Failed to write WebP file for {}: {}", src, e))
+                match image::load_from_memory(&data) {
+                    Ok(img) => {
+                        // Resize maintaining aspect ratio
+                        let resized = img.thumbnail(size as u32, size as u32);
+                        
+                        // Convert to RGB8 if needed
+                        let rgb8 = match resized {
+                            DynamicImage::ImageRgb8(img) => img,
+                            img => img.to_rgb8(),
+                        };
+                        
+                        // Encode as WebP
+                        let encoder = webp::Encoder::from_rgb(&rgb8, rgb8.width(), rgb8.height());
+                        let webp_data = encoder.encode(85.0);
+                        
+                        // Write to file - WebPMemory implements AsRef<[u8]>
+                        std::fs::write(dst, webp_data.as_ref())
+                            .map_err(|e| anyhow::anyhow!("Failed to write WebP file for {}: {}", src, e))
+                    }
+                    Err(e) => Err(anyhow::anyhow!("Failed to decode frame for {}: {}", src, e)),
+                }
             }
         };
         
@@ -345,7 +350,11 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
             // Attempt to remove partial file if it exists
             if dst.exists() {
                 if let Err(rm_err) = std::fs::remove_file(dst) {
-                    warn!("Failed to clean up partial thumbnail file {:?} after write error: {}", dst, rm_err);
+                    warn!(
+                        "Failed to clean up partial thumbnail file {:?} after write error: {}",
+                        dst,
+                        rm_err
+                    );
                 }
             }
             return Err(e);
