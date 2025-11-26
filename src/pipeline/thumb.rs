@@ -126,6 +126,7 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
     
     // Fallback to CPU-only command if GPU failed or was not enabled
     if frame_data.is_none() {
+        debug!("Attempting CPU fallback for video thumbnail extraction: {}", src);
         let cpu_args = ffmpeg::build_ffmpeg_args(src, dst, size, &ffmpeg::GpuAccel::Cpu);
         let cpu_result = ffmpeg::run_ffmpeg_with_timeout(cpu_args.clone(), cpu_timeout);
         
@@ -263,8 +264,8 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
 
     if let Some(data) = frame_data {
         if data.is_empty() {
-            warn!("ffmpeg extracted empty frame for {}", src);
-            anyhow::bail!("ffmpeg extracted empty frame");
+            warn!("ffmpeg extracted empty frame for {} (all extraction paths exhausted)", src);
+            anyhow::bail!("ffmpeg extracted empty frame: all extraction paths (GPU, CPU, minimal) failed");
         }
         #[cfg(not(target_env = "msvc"))]
         {

@@ -207,10 +207,6 @@ async fn smoke_end_to_end() {
     assert_eq!(resp.status(), 200);
     eprintln!("[TEST] Test completed successfully!");
     
-    // Abort the server task so the test can exit cleanly
-    eprintln!("[TEST] Aborting server task");
-    server_handle.abort();
-    
     // Close channels to signal all pipeline workers to shut down
     eprintln!("[TEST] Closing channels to shut down workers");
     drop(discover_tx);
@@ -220,8 +216,18 @@ async fn smoke_end_to_end() {
     drop(thumb_tx);
     drop(face_tx);
     
-    // Give workers a moment to shut down
-    sleep(Duration::from_millis(500)).await;
+    // Give workers a moment to shut down before aborting server
+    sleep(Duration::from_millis(200)).await;
+    
+    // Abort the server task so the test can exit cleanly
+    eprintln!("[TEST] Aborting server task");
+    server_handle.abort();
+    
+    // Await the abort to ensure it completes
+    let _ = server_handle.await;
+    
+    // Give a final moment for cleanup
+    sleep(Duration::from_millis(100)).await;
     eprintln!("[TEST] Test async block ending");
     }).await;
     eprintln!("[TEST] Timeout wrapper completed");
