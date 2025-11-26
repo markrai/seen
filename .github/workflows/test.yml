@@ -59,8 +59,9 @@ jobs:
       - name: Run unit tests
         run: cargo test --lib --verbose
 
-      - name: Run integration tests
-        run: cargo test --test '*' --verbose
+      # No integration tests currently; skip this step to avoid "no test target matches pattern" errors.
+      # - name: Run integration tests
+      #   run: cargo test --test '*' --verbose
 
   # lint:
   #   name: Lint and Format Check
