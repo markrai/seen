@@ -354,8 +354,8 @@ impl FaceProcessor {
                 if let (Some(sk), Some(bk)) = (score_key, bbox_key) {
                     if let (Some(sv), Some(bv)) = (outputs.get(&sk), outputs.get(&bk)) {
                         if let (Ok((_, scores)), Ok((_, boxes))) = (sv.try_extract_tensor::<f32>(), bv.try_extract_tensor::<f32>()) {
-                            all_scores.extend_from_slice(&scores);
-                            all_boxes.extend_from_slice(&boxes);
+                            all_scores.extend_from_slice(scores);
+                            all_boxes.extend_from_slice(boxes);
                             info!("SCRFD using shape-based fallback: {} scores, {} boxes", scores.len(), boxes.len());
                         }
                     }

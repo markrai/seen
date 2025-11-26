@@ -411,7 +411,7 @@ pub fn get_thumb_info(conn: &Connection, id: i64) -> Result<(Option<String>, Str
     if let Some(row) = rows.next()? {
         let sha: Option<Vec<u8>> = row.get(0)?;
         let mime: String = row.get(1)?;
-        Ok((sha.map(|b| hex::encode(b)), mime))
+        Ok((sha.map(hex::encode), mime))
     } else {
         Ok((None, String::new()))
     }
