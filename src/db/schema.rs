@@ -2,11 +2,11 @@ use anyhow::Result;
 use rusqlite::Connection;
 
 pub fn apply_pragmas(conn: &Connection) -> Result<()> {
-    conn.pragma_update(None, "journal_mode", &"WAL")?;
-    conn.pragma_update(None, "synchronous", &"NORMAL")?;
-    conn.pragma_update(None, "temp_store", &"MEMORY")?;
-    conn.pragma_update(None, "mmap_size", &268435456i64)?;
-    conn.pragma_update(None, "page_size", &4096i64)?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "temp_store", "MEMORY")?;
+    conn.pragma_update(None, "mmap_size", 268435456i64)?;
+    conn.pragma_update(None, "page_size", 4096i64)?;
     Ok(())
 }
 

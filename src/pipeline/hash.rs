@@ -64,7 +64,7 @@ fn hash_file(path: &PathBuf, size_bytes: i64, mime: &str) -> Result<(i64, Option
             offset = end;
         }
         
-        let x = xx.digest() as u64 as i64;
+        let x = xx.digest() as i64;
         let sha = sh.map(|s| s.finalize().to_vec());
         Ok((x, sha))
     } else {
@@ -85,7 +85,7 @@ fn hash_file(path: &PathBuf, size_bytes: i64, mime: &str) -> Result<(i64, Option
             }
         }
         
-        let x = xx.digest() as u64 as i64;
+        let x = xx.digest() as i64;
         let sha = sh.map(|s| s.finalize().to_vec());
         Ok((x, sha))
     }

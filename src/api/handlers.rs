@@ -247,10 +247,8 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
             }).ok()?;
 
             let mut distribution = std::collections::HashMap::new();
-            for row in rows {
-                if let Ok((file_type, count)) = row {
-                    distribution.insert(file_type, count);
-                }
+            for (file_type, count) in rows.flatten() {
+                distribution.insert(file_type, count);
             }
 
             // Get detailed breakdown of "other" files if they exist
@@ -284,16 +282,14 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
                         ))
                     }).ok()?;
 
-                    for row in ext_rows {
-                        if let Ok((ext, count)) = row {
-                            let trimmed = ext.trim();
-                            if !trimmed.is_empty() {
-                                let trimmed_str = trimmed.to_string();
-                                if !other_extensions.contains(&trimmed_str) {
-                                    other_extensions.push(trimmed_str.clone());
-                                }
-                                *other_breakdown.entry(trimmed_str).or_insert(0) += count;
+                    for (ext, count) in ext_rows.flatten() {
+                        let trimmed = ext.trim();
+                        if !trimmed.is_empty() {
+                            let trimmed_str = trimmed.to_string();
+                            if !other_extensions.contains(&trimmed_str) {
+                                other_extensions.push(trimmed_str.clone());
                             }
+                            *other_breakdown.entry(trimmed_str).or_insert(0) += count;
                         }
                     }
                 }
@@ -328,16 +324,14 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
                         ))
                     }).ok()?;
 
-                    for row in ext_rows {
-                        if let Ok((ext, count)) = row {
-                            let trimmed = ext.trim();
-                            if !trimmed.is_empty() {
-                                let trimmed_str = trimmed.to_string();
-                                if !other_extensions.contains(&trimmed_str) {
-                                    other_extensions.push(trimmed_str.clone());
-                                }
-                                *other_breakdown.entry(trimmed_str).or_insert(0) += count;
+                    for (ext, count) in ext_rows.flatten() {
+                        let trimmed = ext.trim();
+                        if !trimmed.is_empty() {
+                            let trimmed_str = trimmed.to_string();
+                            if !other_extensions.contains(&trimmed_str) {
+                                other_extensions.push(trimmed_str.clone());
                             }
+                            *other_breakdown.entry(trimmed_str).or_insert(0) += count;
                         }
                     }
                 }
@@ -370,16 +364,14 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
                         ))
                     }).ok()?;
 
-                    for row in ext_rows {
-                        if let Ok((ext, count)) = row {
-                            let trimmed = ext.trim();
-                            if !trimmed.is_empty() {
-                                let trimmed_str = trimmed.to_string();
-                                if !other_extensions.contains(&trimmed_str) {
-                                    other_extensions.push(trimmed_str.clone());
-                                }
-                                *other_breakdown.entry(trimmed_str).or_insert(0) += count;
+                    for (ext, count) in ext_rows.flatten() {
+                        let trimmed = ext.trim();
+                        if !trimmed.is_empty() {
+                            let trimmed_str = trimmed.to_string();
+                            if !other_extensions.contains(&trimmed_str) {
+                                other_extensions.push(trimmed_str.clone());
                             }
+                            *other_breakdown.entry(trimmed_str).or_insert(0) += count;
                         }
                     }
                 }
@@ -1158,7 +1150,7 @@ pub async fn diag_ffmpeg() -> impl IntoResponse {
     });
 
     // Get ffmpeg version
-    if let Ok(output) = Command::new("ffmpeg").args(&["-version"]).output() {
+    if let Ok(output) = Command::new("ffmpeg").args(["-version"]).output() {
         if output.status.success() {
             let version_str = String::from_utf8_lossy(&output.stdout);
             let first_line = version_str.lines().next().unwrap_or("unknown");
@@ -1167,7 +1159,7 @@ pub async fn diag_ffmpeg() -> impl IntoResponse {
     }
 
     // Get available hardware accelerators
-    if let Ok(output) = Command::new("ffmpeg").args(&["-hide_banner", "-hwaccels"]).output() {
+    if let Ok(output) = Command::new("ffmpeg").args(["-hide_banner", "-hwaccels"]).output() {
         if output.status.success() {
             let hwaccels_str = String::from_utf8_lossy(&output.stdout);
             let accels: Vec<&str> = hwaccels_str
@@ -1183,10 +1175,10 @@ pub async fn diag_ffmpeg() -> impl IntoResponse {
     }
 
     // Get available filters (check for GPU scaling filters)
-    if let Ok(output) = Command::new("ffmpeg").args(&["-hide_banner", "-filters"]).output() {
+    if let Ok(output) = Command::new("ffmpeg").args(["-hide_banner", "-filters"]).output() {
         if output.status.success() {
             let filters_str = String::from_utf8_lossy(&output.stdout);
-            let gpu_filters = vec!["scale_cuda", "scale_npp", "scale_qsv"];
+            let gpu_filters = ["scale_cuda", "scale_npp", "scale_qsv"];
             let found: Vec<String> = gpu_filters
                 .iter()
                 .filter(|f| filters_str.contains(*f))
@@ -1818,7 +1810,7 @@ pub async fn download_asset(State(state): State<Arc<AppState>>, Path(id): Path<i
             let headers = resp.headers_mut().unwrap();
             headers.insert(
                 header::CONTENT_TYPE,
-                header::HeaderValue::from_str(&mime.to_string()).unwrap_or_else(|_| header::HeaderValue::from_static("application/octet-stream"))
+                header::HeaderValue::from_str(mime.as_ref()).unwrap_or_else(|_| header::HeaderValue::from_static("application/octet-stream"))
             );
             headers.insert(
                 header::CONTENT_DISPOSITION,

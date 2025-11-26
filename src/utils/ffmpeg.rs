@@ -147,7 +147,7 @@ fn detect_gpu_accel() -> GpuAccel {
 
     // Probe ffmpeg for available hardware accelerators
     let output = Command::new("ffmpeg")
-        .args(&["-hide_banner", "-hwaccels"])
+        .args(["-hide_banner", "-hwaccels"])
         .output();
     
     let hwaccels = match output {
@@ -173,16 +173,14 @@ fn detect_gpu_accel() -> GpuAccel {
         }
     }
     
-    if hwaccels.contains("qsv") {
-        if check_filter("scale_qsv") {
-            // Check for Intel GPU devices via VAAPI
-            if check_intel_gpu_devices() {
-                debug!("GPU: QSV detected with Intel GPU devices available");
-                return GpuAccel::Qsv;
-            } else {
-                debug!("GPU: QSV libraries found but no Intel GPU devices detected");
-            }
-        }
+    if hwaccels.contains("qsv")
+        && check_filter("scale_qsv")
+        && check_intel_gpu_devices()
+    {
+        debug!("GPU: QSV detected with Intel GPU devices available");
+        return GpuAccel::Qsv;
+    } else if hwaccels.contains("qsv") && check_filter("scale_qsv") {
+        debug!("GPU: QSV libraries found but no Intel GPU devices detected");
     }
     
     // Check for OpenCL devices (can be used for general GPU compute)
@@ -211,7 +209,7 @@ fn detect_gpu_accel() -> GpuAccel {
 pub fn check_cuda_devices() -> u32 {
     // Try nvidia-smi command first (most reliable)
     if let Ok(output) = Command::new("nvidia-smi")
-        .args(&["--list-gpus", "--format=csv,noheader"])
+        .args(["--list-gpus", "--format=csv,noheader"])
         .output()
     {
         if output.status.success() {
@@ -226,7 +224,7 @@ pub fn check_cuda_devices() -> u32 {
     
     // Fallback: try nvidia-smi without format (older versions)
     if let Ok(output) = Command::new("nvidia-smi")
-        .args(&["-L"])
+        .args(["-L"])
         .output()
     {
         if output.status.success() {
@@ -270,7 +268,7 @@ pub fn check_intel_gpu_devices() -> bool {
                 if name.starts_with("renderD") {
                     // Check if it's an Intel device using vainfo
                     if let Ok(output) = Command::new("vainfo")
-                        .args(&["--display", &format!("drm:{}", path.display())])
+                        .args(["--display", &format!("drm:{}", path.display())])
                         .output()
                     {
                         if output.status.success() {
@@ -307,7 +305,7 @@ pub fn check_intel_gpu_devices() -> bool {
 pub fn check_opencl_devices() -> u32 {
     // Try clinfo command (most reliable)
     if let Ok(output) = Command::new("clinfo")
-        .args(&["-l"])
+        .args(["-l"])
         .output()
     {
         if output.status.success() {
@@ -348,7 +346,7 @@ pub fn check_opencl_devices() -> u32 {
 
 fn check_filter(filter_name: &str) -> bool {
     let output = Command::new("ffmpeg")
-        .args(&["-hide_banner", "-filters"])
+        .args(["-hide_banner", "-filters"])
         .output();
     
     match output {
@@ -555,7 +553,7 @@ pub fn run_ffmpeg_with_timeout(args: Vec<String>, timeout: Duration) -> Result<s
                 if !stderr_bytes.is_empty() {
                     let stderr_str = String::from_utf8_lossy(&stderr_bytes);
                     // Only log if it contains useful information (not just empty lines)
-                    if stderr_str.trim().len() > 0 {
+                    if !stderr_str.trim().is_empty() {
                         tracing::debug!("ffmpeg stderr: {}", stderr_str);
                     }
                 }

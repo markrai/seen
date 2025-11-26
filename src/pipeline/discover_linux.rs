@@ -282,10 +282,10 @@ fn enumerate_files_fast(
 
     while !dirs_to_process.is_empty() && scan_running.load(std::sync::atomic::Ordering::Relaxed) {
         check_counter += 1;
-        if check_counter % 10 == 0 {
-            if !scan_running.load(std::sync::atomic::Ordering::Relaxed) {
-                break;
-            }
+        if check_counter.is_multiple_of(10)
+            && !scan_running.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            break;
         }
 
         // Process directories in parallel batches

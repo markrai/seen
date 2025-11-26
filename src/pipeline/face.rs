@@ -235,7 +235,7 @@ impl FaceProcessor {
         let mut padded = image::DynamicImage::new_rgb8(640, 640);
         image::imageops::overlay(&mut padded, &resized, 0, 0);
         let rgb = padded.to_rgb8();
-        let mut data = Vec::with_capacity(1 * 3 * 640 * 640);
+        let mut data = Vec::with_capacity(3 * 640 * 640);
         for c in 0..3 {
             for y in 0..640u32 {
                 for x in 0..640u32 {
@@ -262,7 +262,7 @@ impl FaceProcessor {
     fn preprocess_arcface(&self, face_crop: &DynamicImage) -> Result<([i64; 4], Vec<f32>)> {
         let resized = face_crop.resize_exact(112, 112, image::imageops::FilterType::Triangle);
         let rgb = resized.to_rgb8();
-        let mut data = Vec::with_capacity(1 * 3 * 112 * 112);
+        let mut data = Vec::with_capacity(3 * 112 * 112);
         for c in 0..3 {
             for y in 0..112u32 {
                 for x in 0..112u32 {
@@ -306,11 +306,11 @@ impl FaceProcessor {
         let mut all_boxes = Vec::new();
         
         for scale in ["8", "16", "32"] {
-            if let (Some(sv), Some(bv)) = (outputs.get(&format!("score_{}", scale)), outputs.get(&format!("bbox_{}", scale))) {
+            if let (Some(sv), Some(bv)) = (outputs.get(format!("score_{}", scale).as_str()), outputs.get(format!("bbox_{}", scale).as_str())) {
                 if let (Ok((_, scores)), Ok((_, boxes))) = (sv.try_extract_tensor::<f32>(), bv.try_extract_tensor::<f32>()) {
                     info!("SCRFD scale_{}: {} scores, {} boxes", scale, scores.len(), boxes.len());
-                    all_scores.extend_from_slice(&scores);
-                    all_boxes.extend_from_slice(&boxes);
+                    all_scores.extend_from_slice(scores);
+                    all_boxes.extend_from_slice(boxes);
                 }
             }
         }
@@ -323,8 +323,8 @@ impl FaceProcessor {
             
             if let (Some(sv), Some(bv)) = (score_val, bbox_val) {
                 if let (Ok((_, scores)), Ok((_, boxes))) = (sv.try_extract_tensor::<f32>(), bv.try_extract_tensor::<f32>()) {
-                    all_scores.extend_from_slice(&scores);
-                    all_boxes.extend_from_slice(&boxes);
+                    all_scores.extend_from_slice(scores);
+                    all_boxes.extend_from_slice(boxes);
                     info!("SCRFD using single scale fallback (named): {} scores, {} boxes", scores.len(), boxes.len());
                 }
             } else {
@@ -409,9 +409,9 @@ impl FaceProcessor {
             for stride_str in ["8", "16", "32"] {
                 let stride: f32 = stride_str.parse().unwrap();
                 // Try named outputs first, then shape-based fallback
-                let score_tensor_opt = outputs.get(&format!("score_{}", stride_str))
+                let score_tensor_opt = outputs.get(format!("score_{}", stride_str).as_str())
                     .or_else(|| if stride == 8.0 { outputs.get("score") } else { None });
-                let bbox_tensor_opt = outputs.get(&format!("bbox_{}", stride_str))
+                let bbox_tensor_opt = outputs.get(format!("bbox_{}", stride_str).as_str())
                     .or_else(|| if stride == 8.0 { outputs.get("bbox") } else { None });
                 
                 // If not found by name, we might need to use the shape-based ones found earlier
@@ -636,7 +636,7 @@ impl FaceProcessor {
             .unwrap_or_default();
         
         // Default allowed extensions (if no exclusions set in database)
-        let default_allowed = vec!["jpg", "jpeg", "png", "webp", "heic", "heif", "tiff", "tif"];
+        let default_allowed = ["jpg", "jpeg", "png", "webp", "heic", "heif", "tiff", "tif"];
         
         // For now, use default allowed list. The SQL query in detect_faces handler
         // already filters by excluded extensions, so this is just a safety check.
@@ -845,6 +845,12 @@ pub struct FaceIndex {
 }
 
 #[cfg(feature = "facial-recognition")]
+impl Default for FaceIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FaceIndex {
     pub fn new() -> Self {
         Self {
@@ -1013,7 +1019,7 @@ pub async fn start_face_workers(
 
                             // When enough accumulated, run clustering and persist persons
                             if accumulated_with_ids.len() >= get_cluster_batch_size() {
-                                let items = accumulated_with_ids.drain(..).collect::<Vec<_>>();
+                                let items = std::mem::take(&mut accumulated_with_ids);
                                 let dbp = db_path_c.clone();
                                 let item_count = items.len();
                                 info!("Starting clustering for {} accumulated faces", item_count);

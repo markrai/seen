@@ -40,7 +40,7 @@ async fn probe_video(path: &str) -> (Option<i64>, Option<i64>, Option<i64>, Opti
                 }
             }
         }
-        let dur = v.get("format").and_then(|f| f.get("duration")).and_then(|x| parse_duration_ms(x));
+        let dur = v.get("format").and_then(|f| f.get("duration")).and_then(parse_duration_ms);
         return (w, h, dur, codec);
     }
     (None, None, None, None)

@@ -17,6 +17,12 @@ pub struct Stats {
     last_completed_processing_elapsed: parking_lot::Mutex<Option<f64>>,
 }
 
+impl Default for Stats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Stats {
     pub fn new() -> Self {
         Self {

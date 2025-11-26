@@ -90,10 +90,8 @@ pub async fn detect_faces(State(state): State<Arc<AppState>>) -> impl axum::resp
                     Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
                 }).ok()?;
                 let mut assets = Vec::new();
-                for row in rows {
-                    if let Ok((id, path)) = row {
-                        assets.push((id, std::path::PathBuf::from(path)));
-                    }
+                for (id, path) in rows.flatten() {
+                    assets.push((id, std::path::PathBuf::from(path)));
                 }
                 Some(assets)
             }
@@ -255,7 +253,7 @@ pub async fn list_unassigned_faces(State(state): State<Arc<AppState>>, Query(q):
     let dbp = state.db_path.clone();
     let rows = tokio::task::spawn_blocking(move || {
         let conn = rusqlite::Connection::open(dbp).ok()?;
-        let rows = db::query::get_unassigned_faces(&conn, offset, limit as i64).ok()?;
+        let rows = db::query::get_unassigned_faces(&conn, offset, limit).ok()?;
         Some(rows)
     }).await.ok().flatten().unwrap_or_default();
 

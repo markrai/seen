@@ -322,7 +322,7 @@ fn commit_batch(config: CommitBatchConfig<'_>) -> Result<()> {
         let tx2 = conn.unchecked_transaction()?;
         {
             let mut stmt = tx2.prepare("INSERT INTO fts_assets(rowid, filename, dirname, path) VALUES (?1,?2,?3,?4)")?;
-            for chunk in fts_rows.drain(..).collect::<Vec<_>>() {
+            for chunk in std::mem::take(fts_rows) {
                 match stmt.execute(params![chunk.0, chunk.1, chunk.2, chunk.3]) {
                     Ok(_) => {
                         if let Some(sha) = chunk.4 {
@@ -356,10 +356,7 @@ fn commit_batch(config: CommitBatchConfig<'_>) -> Result<()> {
     #[cfg(feature = "facial-recognition")]
     if let (Some(face_tx_ref), Some(processor_ref), Some(_db_path_ref)) = (face_tx, face_processor, db_path) {
         // Check if face detection is enabled
-        let face_detection_enabled = match get_face_detection_enabled(conn) {
-            Ok(enabled) => enabled,
-            Err(_) => false,
-        };
+        let face_detection_enabled = get_face_detection_enabled(conn).unwrap_or_default();
         
         if !face_detection_enabled {
             return Ok(());
@@ -422,7 +419,7 @@ fn commit_batch(config: CommitBatchConfig<'_>) -> Result<()> {
             }
             
             // Queue for face detection
-            if let Err(_) = face_tx_ref.try_send(FaceJob { asset_id, image_path: path }) {
+            if face_tx_ref.try_send(FaceJob { asset_id, image_path: path }).is_err() {
                 // Channel is full or closed - skip this file, it will be picked up later
                 continue;
             }
@@ -937,7 +934,7 @@ pub fn clear_all_data(conn: &Connection) -> Result<(usize, usize, usize)> {
     let asset_ids: Vec<i64> = {
         let mut stmt = tx.prepare("SELECT id FROM assets")?;
         let rows = stmt.query_map([], |row| {
-            Ok(row.get::<_, i64>(0)?)
+            row.get::<_, i64>(0)
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     };
@@ -994,7 +991,7 @@ pub fn delete_assets_by_path_prefix(conn: &Connection, path_prefix: &str) -> Res
     let asset_ids: Vec<i64> = {
         let mut stmt = tx.prepare("SELECT id FROM assets WHERE path LIKE ?1 ESCAPE '\\' OR path = ?2")?;
         let rows = stmt.query_map(params![like_pattern, path_prefix], |row| {
-            Ok(row.get::<_, i64>(0)?)
+            row.get::<_, i64>(0)
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     };
@@ -1122,7 +1119,7 @@ pub fn remove_assets_from_album(conn: &Connection, album_id: i64, asset_ids: &[i
             "DELETE FROM album_assets WHERE album_id = ?1 AND asset_id = ?2",
             params![album_id, asset_id],
         ) {
-            Ok(count) => removed += count as usize,
+            Ok(count) => removed += count,
             Err(e) => {
                 tx.rollback()?;
                 return Err(e.into());

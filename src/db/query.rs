@@ -29,7 +29,7 @@ pub struct SearchParams<'a> {
 
 fn row_to_asset(row: &Row<'_>) -> rusqlite::Result<Asset> {
     let sha: Option<Vec<u8>> = row.get("sha256")?;
-    let sha_hex = sha.map(|b| hex::encode(b));
+    let sha_hex = sha.map(hex::encode);
     Ok(Asset {
         id: row.get("id")?,
         path: row.get("path")?,
@@ -392,8 +392,8 @@ pub fn search_assets(conn: &Connection, params: &SearchParams<'_>) -> Result<Sea
         where_sql, order_by_clause
     );
     let mut all_params = params_vec.clone();
-    all_params.push((params.limit as i64).into());
-    all_params.push((params.offset as i64).into());
+    all_params.push(params.limit.into());
+    all_params.push(params.offset.into());
     let mut stmt = conn.prepare(&list_sql)?;
     let items = stmt.query_map(rusqlite::params_from_iter(all_params.into_iter()), row_to_asset)?.collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(SearchResult { total, items, match_counts })
@@ -402,7 +402,7 @@ pub fn search_assets(conn: &Connection, params: &SearchParams<'_>) -> Result<Sea
 pub fn get_asset_sha256(conn: &Connection, id: i64) -> Result<Option<String>> {
     let mut stmt = conn.prepare("SELECT sha256 FROM assets WHERE id = ?")?;
     let sha: Option<Vec<u8>> = stmt.query_row(params![id], |row| row.get(0))?;
-    Ok(sha.map(|b| hex::encode(b)))
+    Ok(sha.map(hex::encode))
 }
 
 pub fn get_thumb_info(conn: &Connection, id: i64) -> Result<(Option<String>, String)> {
@@ -489,7 +489,7 @@ pub fn delete_asset_by_id(conn: &Connection, id: i64) -> Result<bool> {
 pub fn get_scan_paths(conn: &Connection) -> Result<Vec<String>> {
     let mut stmt = conn.prepare("SELECT path FROM scan_paths ORDER BY created_at")?;
     let paths = stmt.query_map([], |row| {
-        Ok(row.get::<_, String>(0)?)
+        row.get::<_, String>(0)
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(paths)
 }
@@ -517,7 +517,7 @@ pub fn find_moved_asset(conn: &Connection, filename: &str, size_bytes: i64) -> R
     
     let mut stmt = conn.prepare("SELECT path FROM assets WHERE filename = ? AND size_bytes = ?")?;
     let rows = stmt.query_map(params![filename, size_bytes], |row| {
-        Ok(row.get::<_, String>(0)?)
+        row.get::<_, String>(0)
     })?;
     
     for path_result in rows {
@@ -653,7 +653,7 @@ pub fn get_unassigned_faces_with_embeddings(conn: &Connection) -> Result<Vec<Una
 #[cfg(feature = "facial-recognition")]
 pub fn decode_embedding_blob(blob: &[u8]) -> Result<Vec<f32>> {
     // Convert bytes back to f32 (little-endian)
-    if blob.len() % 4 != 0 {
+    if !blob.len().is_multiple_of(4) {
         anyhow::bail!("Embedding blob length is not a multiple of 4");
     }
     let mut embeddings = Vec::with_capacity(blob.len() / 4);
