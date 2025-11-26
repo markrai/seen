@@ -3,7 +3,7 @@ services:
     # Use Dockerfile.cuda for CUDA-enabled ffmpeg (required for GPU acceleration)
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.cuda
       args:
         CARGO_BUILD_FLAGS: ${CARGO_BUILD_FLAGS:-}
         CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-}  # Optional: limit build jobs (defaults to all available cores)
@@ -35,3 +35,17 @@ services:
         limits:
           cpus: "${NAZR_CPU_LIMIT:-4.0}"  # 80% of available CPUs (default: 4.0 if not set)
           memory: "${NAZR_MEMORY_LIMIT:-4G}"  # 75% of available RAM, minimum 4 GB (default: 4G if not set)
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # For Intel QSV (Linux only):
+    #   devices:
+    #     - /dev/dri:/dev/dri:ro
+    #   environment:
+    #     - GPU_ACCEL=qsv  # or 'auto' for auto-detection
+    # For Windows D3D11VA (default on Windows):
+    #   environment:
+    #     - GPU_ACCEL=d3d11va  # or 'auto' for auto-detection
+

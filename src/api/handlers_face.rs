@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 use axum::{extract::{State, Path}, http::StatusCode, Json};
 use axum::response::IntoResponse;
 use serde::Deserialize;
@@ -13,7 +13,7 @@ pub async fn detect_faces(State(state): State<Arc<AppState>>) -> impl axum::resp
     let db_path = state.db_path.clone();
     let face_tx = state.queues.face_tx.clone();
     let gauges = state.gauges.clone();
-    
+
     // Set enabled state in database
     let dbp = state.db_path.clone();
     let enabled_set = tokio::task::spawn_blocking({
@@ -23,18 +23,18 @@ pub async fn detect_faces(State(state): State<Arc<AppState>>) -> impl axum::resp
             db::writer::set_face_detection_enabled(&conn, true).ok()
         }
     }).await.ok().flatten();
-    
+
     if enabled_set.is_some() {
         state.face_detection_enabled.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    
+
     tokio::spawn(async move {
         // Get image assets based on excluded extensions setting
         let image_assets = tokio::task::spawn_blocking({
             let dbp = db_path.clone();
             move || {
                 let conn = rusqlite::Connection::open(dbp).ok()?;
-                
+
                 // All image extensions that can be processed
                 let all_image_exts = vec![
                     "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif", "heic", "heif",
@@ -43,16 +43,16 @@ pub async fn detect_faces(State(state): State<Arc<AppState>>) -> impl axum::resp
                     "iiq", "rwl", "r3d", "ari", "bay", "cap", "data", "dcs", "drf", "eip",
                     "k25", "mdc", "nrw", "obm", "ptx", "pxn", "rwz", "srf", "crw"
                 ];
-                
+
                 // Default allowed extensions (if no exclusions set in database)
                 let default_allowed = vec!["jpg", "jpeg", "png", "webp", "heic", "heif", "tiff", "tif"];
-                
+
                 // Read excluded extensions from database
                 let excluded = db::writer::get_face_setting(&conn, "excluded_extensions").ok()?;
                 let excluded_list: Vec<String> = excluded
                     .map(|s| s.split(',').map(|x| x.trim().to_lowercase()).collect())
                     .unwrap_or_default();
-                
+
                 // Build allowed extensions list
                 let allowed_exts: Vec<&str> = if excluded_list.is_empty() {
                     // No exclusions set - use default allowed list
@@ -63,11 +63,11 @@ pub async fn detect_faces(State(state): State<Arc<AppState>>) -> impl axum::resp
                         .filter(|ext| !excluded_list.contains(&ext.to_lowercase()))
                         .collect()
                 };
-                
+
                 if allowed_exts.is_empty() {
                     return Some(Vec::new());
                 }
-                
+
                 // Build SQL query with allowed extensions
                 // Handle both ".ext" and "ext" formats, and case-insensitive matching
                 let ext_conditions: Vec<String> = allowed_exts.iter()
@@ -78,13 +78,13 @@ pub async fn detect_faces(State(state): State<Arc<AppState>>) -> impl axum::resp
                     ])
                     .collect();
                 let sql = format!(
-                    "SELECT a.id, a.path 
-                     FROM assets a 
+                    "SELECT a.id, a.path
+                     FROM assets a
                      WHERE ({})
                      AND a.id NOT IN (SELECT DISTINCT asset_id FROM face_embeddings)",
                     ext_conditions.join(" OR ")
                 );
-                
+
                 let mut stmt = conn.prepare(&sql).ok()?;
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
@@ -117,7 +117,7 @@ pub async fn detect_faces(State(state): State<Arc<AppState>>) -> impl axum::resp
 pub async fn face_detection_status(State(state): State<Arc<AppState>>) -> impl axum::response::IntoResponse {
     let enabled = state.face_detection_enabled.load(std::sync::atomic::Ordering::Relaxed);
     let queue_depth = state.gauges.face.load(std::sync::atomic::Ordering::Relaxed);
-    
+
     (StatusCode::OK, Json(serde_json::json!({
         "enabled": enabled,
         "queue_depth": queue_depth
@@ -134,11 +134,11 @@ pub async fn stop_face_detection(State(state): State<Arc<AppState>>) -> impl axu
             db::writer::set_face_detection_enabled(&conn, false).ok()
         }
     }).await.ok().flatten();
-    
+
     if disabled_set.is_some() {
         state.face_detection_enabled.store(false, std::sync::atomic::Ordering::Relaxed);
     }
-    
+
     // Clear the queue gauge (remaining items won't be processed)
     state.gauges.face.store(0, std::sync::atomic::Ordering::Relaxed);
 
@@ -153,7 +153,7 @@ pub async fn face_progress(State(state): State<Arc<AppState>>) -> impl axum::res
     // Get enabled state (from memory, or initialize from database if not set)
     let enabled = state.face_detection_enabled.load(std::sync::atomic::Ordering::Relaxed);
     let queue_depth = state.gauges.face.load(std::sync::atomic::Ordering::Relaxed);
-    
+
     // Initialize from database on first call if not set
     if !enabled {
         let dbp = state.db_path.clone();
@@ -161,10 +161,10 @@ pub async fn face_progress(State(state): State<Arc<AppState>>) -> impl axum::res
             let conn = rusqlite::Connection::open(dbp).ok()?;
             db::writer::get_face_detection_enabled(&conn).ok()
         }).await.ok().flatten().unwrap_or(false);
-        
+
         state.face_detection_enabled.store(db_enabled, std::sync::atomic::Ordering::Relaxed);
     }
-    
+
     let enabled = state.face_detection_enabled.load(std::sync::atomic::Ordering::Relaxed);
 
     // Models loaded status
@@ -376,55 +376,55 @@ pub async fn face_thumb(State(state): State<Arc<AppState>>, Path(face_id): Path<
         let (path, _w_opt, _h_opt) = db::query::get_asset_path_size(&conn, asset_id).ok().flatten()?;
         let bbox: crate::pipeline::face::FaceBbox = serde_json::from_str(&bbox_json).ok()?;
         let img = image::open(&path).ok()?;
-        
+
         // Use actual image dimensions
         let img_w = img.width() as f32;
         let img_h = img.height() as f32;
-        
+
         // Clamp bounding box to image bounds
         let x1 = bbox.x1.max(0.0).min(img_w);
         let y1 = bbox.y1.max(0.0).min(img_h);
         let x2 = bbox.x2.max(0.0).min(img_w);
         let y2 = bbox.y2.max(0.0).min(img_h);
-        
+
         // Ensure valid bounding box
         if x2 <= x1 || y2 <= y1 {
             tracing::warn!("Invalid bounding box for face {}: x1={}, y1={}, x2={}, y2={}", face_id, x1, y1, x2, y2);
             return None;
         }
-        
+
         // Add padding (20% on each side)
         let width = x2 - x1;
         let height = y2 - y1;
         let padding_x = width * 0.2;
         let padding_y = height * 0.2;
-        
+
         let crop_x1 = (x1 - padding_x).max(0.0) as u32;
         let crop_y1 = (y1 - padding_y).max(0.0) as u32;
         let crop_x2 = ((x2 + padding_x).min(img_w) as u32).min(img.width());
         let crop_y2 = ((y2 + padding_y).min(img_h) as u32).min(img.height());
-        
+
         if crop_x2 <= crop_x1 || crop_y2 <= crop_y1 {
             tracing::warn!("Invalid crop coordinates for face {}: x1={}, y1={}, x2={}, y2={}", face_id, crop_x1, crop_y1, crop_x2, crop_y2);
             return None;
         }
-        
+
         let crop_width = crop_x2 - crop_x1;
         let crop_height = crop_y2 - crop_y1;
-        
+
         if crop_width == 0 || crop_height == 0 {
             tracing::warn!("Zero-size crop for face {}", face_id);
             return None;
         }
-        
+
         let crop = img.crop_imm(crop_x1, crop_y1, crop_width, crop_height);
         let resized = crop.resize_exact(size, size, image::imageops::FilterType::Triangle);
         let mut buf = Vec::new();
         if resized.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageOutputFormat::Png).is_ok() {
             Some((buf,))
-        } else { 
+        } else {
             tracing::warn!("Failed to encode face thumbnail for face {}", face_id);
-            None 
+            None
         }
     }).await.ok().flatten();
 
@@ -712,18 +712,18 @@ pub async fn merge_persons(State(state): State<Arc<AppState>>, Json(req): Json<M
         let target_id = req.target_person_id;
         move || -> Option<Result<(db::writer::MergePersonsResult, Option<db::writer::PersonProfileSummary>), String>> {
             let conn = rusqlite::Connection::open(dbp).ok()?;
-            
+
             // Validate that both persons exist
             let source_exists = db::query::get_person(&conn, source_id).ok()?.is_some();
             let target_exists = db::query::get_person(&conn, target_id).ok()?.is_some();
-            
+
             if !source_exists {
                 return Some(Err("Source person not found".to_string()));
             }
             if !target_exists {
                 return Some(Err("Target person not found".to_string()));
             }
-            
+
             // Perform the merge and rebuild the profile for the target
             match db::writer::merge_persons(&conn, source_id, target_id) {
                 Ok(merge_result) => {
@@ -793,13 +793,13 @@ pub async fn smart_merge_persons(
         let threshold = merge_threshold;
         move || -> Option<Result<(i64, i64), String>> {
             let conn = rusqlite::Connection::open(dbp).ok()?;
-            
+
             // Check that there are at least 2 persons
             let person_count: i64 = conn.query_row("SELECT COUNT(*) FROM persons", [], |r| r.get(0)).ok()?;
             if person_count < 2 {
                 return Some(Err("Need at least 2 persons to merge".to_string()));
             }
-            
+
             // Perform smart merge
             match db::writer::smart_merge_persons(&conn, threshold) {
                 Ok((persons_merged, faces_merged)) => Some(Ok((persons_merged, faces_merged))),
@@ -910,7 +910,7 @@ pub async fn trigger_clustering(
             let unassigned: Vec<_> = embeddings.iter()
                 .filter(|(_, _, _, person_id)| person_id.is_none())
                 .collect();
-            
+
             if unassigned.is_empty() {
                 return Some((0, 0, "No unassigned faces to cluster".to_string()));
             }
@@ -918,13 +918,13 @@ pub async fn trigger_clustering(
             // Convert database embeddings to FaceEmbedding structs
             let mut face_embeddings = Vec::new();
             let mut face_id_map = Vec::new();
-            
+
             for (face_id, asset_id, embedding_blob, _) in unassigned {
                 // Convert embedding bytes back to f32 vector
                 let embedding: Vec<f32> = embedding_blob.chunks_exact(4)
                     .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
                     .collect();
-                
+
                 // We need bbox_json and confidence, but we'll use dummy values since we only need embeddings for clustering
                 // Actually, we need to get the full face data
                 let mut stmt = conn.prepare("SELECT bbox_json, confidence FROM face_embeddings WHERE id = ?").ok()?;
@@ -932,9 +932,9 @@ pub async fn trigger_clustering(
                     rusqlite::params![face_id],
                     |row| Ok((row.get(0)?, row.get(1)?))
                 ).ok()?;
-                
+
                 let bbox: crate::pipeline::face::FaceBbox = serde_json::from_str(&bbox_json).ok()?;
-                
+
                 face_embeddings.push(crate::pipeline::face::FaceEmbedding {
                     embedding,
                     bbox,
@@ -947,9 +947,9 @@ pub async fn trigger_clustering(
             // Priority: query params > env vars > defaults
             let min_cluster_size = min_clust;
             let min_samples = min_samp;
-            
+
             tracing::info!("Clustering {} faces with min_cluster_size={}, min_samples={}", face_embeddings.len(), min_cluster_size, min_samples);
-            
+
             // Diagnostic: check embedding validity and sample distances
             if !face_embeddings.is_empty() {
                 // Check if embeddings are all zeros (which would cause distance=1.0 for all)
@@ -957,15 +957,15 @@ pub async fn trigger_clustering(
                 let sample_norm: f32 = sample_embed.iter().map(|x| x * x).sum::<f32>().sqrt();
                 let is_zero = sample_norm < 0.001;
                 let embedding_dim = sample_embed.len();
-                
-                tracing::info!("Embedding diagnostic: dim={}, norm={:.6}, is_zero={}", 
+
+                tracing::info!("Embedding diagnostic: dim={}, norm={:.6}, is_zero={}",
                     embedding_dim, sample_norm, is_zero);
-                
+
                 if is_zero {
                     tracing::error!("CRITICAL: Embeddings are all zeros! ArcFace model may not be working correctly.");
                     return Some((0, 0, format!("ERROR: All embeddings are zeros (norm={:.6}). Face recognition model may not be working.", sample_norm)));
                 }
-                
+
                 if face_embeddings.len() > 1 {
                     let sample_size = face_embeddings.len().min(10);
                     let mut distances = Vec::new();
@@ -983,22 +983,22 @@ pub async fn trigger_clustering(
                         let min_dist = distances[0];
                         let max_dist = distances[distances.len() - 1];
                         let median_dist = distances[distances.len() / 2];
-                        tracing::info!("Sample face distances: min={:.3}, median={:.3}, max={:.3} (min_cluster_size={}, min_samples={})", 
+                        tracing::info!("Sample face distances: min={:.3}, median={:.3}, max={:.3} (min_cluster_size={}, min_samples={})",
                             min_dist, median_dist, max_dist, min_cluster_size, min_samples);
                     }
                 }
             }
-            
+
             let clusters = crate::pipeline::face::cluster_faces_hdbscan(&face_embeddings, min_cluster_size, min_samples);
             tracing::info!("Clustering {} unassigned faces produced {} clusters", face_embeddings.len(), clusters.len());
 
             // Create persons and assign faces
             let mut persons_created = 0;
             let mut faces_assigned = 0;
-            
+
             for cluster in clusters {
                 if cluster.is_empty() { continue; }
-                
+
                 let person_id = match db::writer::insert_person(&conn, None) {
                     Ok(pid) => {
                         persons_created += 1;
@@ -1009,7 +1009,7 @@ pub async fn trigger_clustering(
                         continue;
                     },
                 };
-                
+
                 for idx in cluster {
                     if let Some(&face_id) = face_id_map.get(idx) {
                         match db::writer::update_face_person(&conn, face_id, Some(person_id)) {
@@ -1020,7 +1020,7 @@ pub async fn trigger_clustering(
                     }
                 }
             }
-            
+
             Some((persons_created, faces_assigned, format!("Clustered {} faces into {} persons", face_embeddings.len(), persons_created)))
         }
     }).await.ok().flatten();
@@ -1136,7 +1136,7 @@ pub async fn update_face_settings(State(state): State<Arc<AppState>>, Json(paylo
     if let Some(v) = payload.min_samples {
         std::env::set_var("NAZR_FACE_HDBSCAN_MIN_SAMPLES", v.to_string());
     }
-    
+
     // Save excluded extensions to database
     if let Some(excluded) = payload.excluded_extensions {
         let db_path = state.db_path.clone();
@@ -1147,7 +1147,7 @@ pub async fn update_face_settings(State(state): State<Arc<AppState>>, Json(paylo
             }
         }).await;
     }
-    
+
     (StatusCode::OK, Json(serde_json::json!({"status": "updated"})))
 }
 

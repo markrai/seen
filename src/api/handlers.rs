@@ -18,7 +18,7 @@ pub async fn health() -> impl IntoResponse {
     let db_type = "Postgres";
     #[cfg(not(feature = "postgres"))]
     let db_type = "SQLite";
-    
+
     // Build backend libraries list based on feature flags
     let mut backend_libraries = vec![
         "tokio - Async runtime".to_string(),
@@ -41,7 +41,7 @@ pub async fn health() -> impl IntoResponse {
         "image - Image decoding".to_string(),
         "reqwest - HTTP client".to_string(),
     ];
-    
+
     // Add database-specific libraries
     #[cfg(feature = "postgres")]
     {
@@ -51,7 +51,7 @@ pub async fn health() -> impl IntoResponse {
     {
         backend_libraries.push("rusqlite - SQLite database".to_string());
     }
-    
+
     // Add optional facial recognition libraries
     #[cfg(feature = "facial-recognition")]
     {
@@ -59,7 +59,7 @@ pub async fn health() -> impl IntoResponse {
         backend_libraries.push("rayon - Parallel processing (optional, facial recognition)".to_string());
         backend_libraries.push("ndarray - N-dimensional arrays (optional, facial recognition)".to_string());
     }
-    
+
     let body = serde_json::json!({
         "status": "ok",
         "version": v,
@@ -76,7 +76,7 @@ pub async fn stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         move || { let conn = Connection::open(dbp).ok()?; db::query::count_assets(&conn).ok() }
     }).await.ok().flatten().unwrap_or(0);
     let scan_stats = state.stats.scan_stats();
-    
+
     // Get photo/video counts for current scan if active
     // Query database to get breakdown of files processed in current scan
     let scan_breakdown = if scan_stats.is_some() {
@@ -101,42 +101,42 @@ pub async fn stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
                     [],
                     |r| r.get(0)
                 ).ok()?;
-                
+
                 // Calculate approximate photo/video counts for current scan
                 // Based on the ratio of photos/videos in the database
                 // This is an approximation but works well for display purposes
                 let photo_ratio = if total_files > 0 { total_photos as f64 / total_files as f64 } else { 0.0 };
                 let video_ratio = if total_files > 0 { total_videos as f64 / total_files as f64 } else { 0.0 };
-                
+
                 let photos_in_scan = (files_processed as f64 * photo_ratio) as i64;
                 let videos_in_scan = (files_processed as f64 * video_ratio) as i64;
-                
+
                 Some((photos_in_scan, videos_in_scan))
             }
         }).await.ok().flatten()
     } else {
         None
     };
-    
+
     let is_scanning = state.path_scan_running.lock()
         .values()
         .any(|flag| flag.load(std::sync::atomic::Ordering::Relaxed));
     let has_queued_items = depths.discover > 0 || depths.hash > 0 || depths.metadata > 0 || depths.db_write > 0 || depths.thumb > 0;
     let is_active = is_scanning || has_queued_items;
-    
+
     // Use last completed scan rate when idle to prevent decay
     let files_per_sec = if is_active {
         state.stats.files_per_sec()
     } else {
         state.stats.last_completed_scan_rate().unwrap_or_else(|| state.stats.files_per_sec())
     };
-    
+
     let mb_per_sec = if is_active {
         state.stats.bytes_per_sec() / 1_000_000.0
     } else {
         state.stats.last_completed_scan_mb_per_sec().unwrap_or_else(|| state.stats.bytes_per_sec() / 1_000_000.0)
     };
-    
+
     // Processing stats: tracks files committed (not discovered)
     let processing_stats = state.stats.processing_stats();
     let processing_rate = if is_active {
@@ -149,7 +149,7 @@ pub async fn stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     } else {
         state.stats.last_completed_processing_mb_per_sec().unwrap_or(0.0)
     };
-    
+
     let body = serde_json::json!({
         "uptime_seconds": state.stats.uptime_secs(),
         "queues": {"discover": depths.discover, "hash": depths.hash, "metadata": depths.metadata, "db_write": depths.db_write, "thumb": depths.thumb},
@@ -205,18 +205,18 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
         let dbp = state.db_path.clone();
         move || {
             let conn = Connection::open(dbp).ok()?;
-            
+
             // Get file type distribution with detailed breakdown for images and videos
             // Images: break down by specific MIME types (jpeg, png, webp, etc.)
             // Videos: break down by specific MIME types (mp4, mov, avi, etc.)
             // Other types: group together
             let mut stmt = conn.prepare(
-                "SELECT 
+                "SELECT
                     file_type,
                     COUNT(*) as count
                 FROM (
-                    SELECT 
-                        CASE 
+                    SELECT
+                        CASE
                             WHEN mime LIKE 'image/jpeg' OR mime LIKE 'image/jpg' THEN 'image/jpeg'
                             WHEN mime LIKE 'image/png' THEN 'image/png'
                             WHEN mime LIKE 'image/webp' THEN 'image/webp'
@@ -238,37 +238,37 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
                 GROUP BY file_type
                 ORDER BY count DESC"
             ).ok()?;
-            
+
             let rows = stmt.query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?
                 ))
             }).ok()?;
-            
+
             let mut distribution = std::collections::HashMap::new();
             for row in rows {
                 if let Ok((file_type, count)) = row {
                     distribution.insert(file_type, count);
                 }
             }
-            
+
             // Get detailed breakdown of "other" files if they exist
             // This includes standalone "other", "image/other", and "video/other"
             let mut other_extensions: Vec<String> = Vec::new();
             let mut other_breakdown: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
-            let has_other = distribution.contains_key("other") || 
-                           distribution.contains_key("image/other") || 
+            let has_other = distribution.contains_key("other") ||
+                           distribution.contains_key("image/other") ||
                            distribution.contains_key("video/other");
-            
+
             if has_other {
                 // Get extensions with counts for standalone "other" (non-image, non-video, non-audio)
                 if distribution.contains_key("other") {
                     let mut ext_stmt = conn.prepare(
                         "SELECT ext, COUNT(*) as count
-                        FROM assets 
-                        WHERE mime NOT LIKE 'image/%' 
-                          AND mime NOT LIKE 'video/%' 
+                        FROM assets
+                        WHERE mime NOT LIKE 'image/%'
+                          AND mime NOT LIKE 'video/%'
                           AND mime NOT LIKE 'audio/%'
                           AND ext IS NOT NULL
                           AND ext != ''
@@ -276,14 +276,14 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
                         ORDER BY count DESC, ext
                         LIMIT 20"
                     ).ok()?;
-                    
+
                     let ext_rows = ext_stmt.query_map([], |row| {
                         Ok((
                             row.get::<_, String>(0)?,
                             row.get::<_, i64>(1)?
                         ))
                     }).ok()?;
-                    
+
                     for row in ext_rows {
                         if let Ok((ext, count)) = row {
                             let trimmed = ext.trim();
@@ -297,12 +297,12 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
                         }
                     }
                 }
-                
+
                 // Get extensions for "image/other" (unknown image types)
                 if distribution.contains_key("image/other") {
                     let mut ext_stmt = conn.prepare(
                         "SELECT ext, COUNT(*) as count
-                        FROM assets 
+                        FROM assets
                         WHERE mime LIKE 'image/%'
                           AND mime NOT LIKE 'image/jpeg'
                           AND mime NOT LIKE 'image/jpg'
@@ -320,14 +320,14 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
                         ORDER BY count DESC, ext
                         LIMIT 20"
                     ).ok()?;
-                    
+
                     let ext_rows = ext_stmt.query_map([], |row| {
                         Ok((
                             row.get::<_, String>(0)?,
                             row.get::<_, i64>(1)?
                         ))
                     }).ok()?;
-                    
+
                     for row in ext_rows {
                         if let Ok((ext, count)) = row {
                             let trimmed = ext.trim();
@@ -341,12 +341,12 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
                         }
                     }
                 }
-                
+
                 // Get extensions for "video/other" (unknown video types)
                 if distribution.contains_key("video/other") {
                     let mut ext_stmt = conn.prepare(
                         "SELECT ext, COUNT(*) as count
-                        FROM assets 
+                        FROM assets
                         WHERE mime LIKE 'video/%'
                           AND mime NOT LIKE 'video/mp4'
                           AND mime NOT LIKE 'video/quicktime'
@@ -362,14 +362,14 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
                         ORDER BY count DESC, ext
                         LIMIT 20"
                     ).ok()?;
-                    
+
                     let ext_rows = ext_stmt.query_map([], |row| {
                         Ok((
                             row.get::<_, String>(0)?,
                             row.get::<_, i64>(1)?
                         ))
                     }).ok()?;
-                    
+
                     for row in ext_rows {
                         if let Ok((ext, count)) = row {
                             let trimmed = ext.trim();
@@ -384,7 +384,7 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
                     }
                 }
             }
-            
+
             let mut response = serde_json::Map::new();
             for (k, v) in distribution {
                 response.insert(k, serde_json::Value::Number(serde_json::Number::from(v)));
@@ -398,11 +398,11 @@ pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse
                 }
                 response.insert("other_breakdown".to_string(), serde_json::Value::Object(other_breakdown_json));
             }
-            
+
             Some(serde_json::Value::Object(response))
         }
     }).await.ok().flatten();
-    
+
     match result {
         Some(data) => (StatusCode::OK, Json(data)),
         None => (StatusCode::OK, Json(serde_json::json!({})))
@@ -418,7 +418,7 @@ pub async fn clear_all_data(State(state): State<Arc<AppState>>) -> impl IntoResp
             "error": "Cannot clear data while scan is running"
         })));
     }
-    
+
     let result = tokio::task::spawn_blocking({
         let dbp = state.db_path.clone();
         move || -> Result<(usize, usize, usize), anyhow::Error> {
@@ -429,7 +429,7 @@ pub async fn clear_all_data(State(state): State<Arc<AppState>>) -> impl IntoResp
             })
         }
     }).await;
-    
+
     match result {
         Ok(Ok((assets_deleted, faces_deleted, persons_deleted))) => {
             // Also reset performance statistics when clearing all data
@@ -469,9 +469,9 @@ pub async fn reset_stats(State(state): State<Arc<AppState>>) -> impl IntoRespons
             "error": "Cannot reset stats while scan is running"
         })));
     }
-    
+
     state.stats.reset_stats();
-    
+
     (StatusCode::OK, Json(serde_json::json!({
         "success": true,
         "message": "Performance statistics reset"
@@ -479,10 +479,10 @@ pub async fn reset_stats(State(state): State<Arc<AppState>>) -> impl IntoRespons
 }
 
 #[derive(Deserialize)]
-pub struct ListQuery { 
-    offset: Option<i64>, 
-    limit: Option<i64>, 
-    sort: Option<String>, 
+pub struct ListQuery {
+    offset: Option<i64>,
+    limit: Option<i64>,
+    sort: Option<String>,
     order: Option<String>,
     #[cfg(feature = "facial-recognition")]
     person_id: Option<i64>,
@@ -588,30 +588,30 @@ pub async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 pub async fn performance(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let stats = &state.stats;
     let scan_stats = stats.scan_stats();
-    
+
     // Check if processing is actually active (queues have items or any path is scanning)
     let queue_depths = state.gauges.depths();
     let is_scanning = state.path_scan_running.lock()
         .values()
         .any(|flag| flag.load(std::sync::atomic::Ordering::Relaxed));
-    let has_queued_items = queue_depths.discover > 0 || queue_depths.hash > 0 || 
-                           queue_depths.metadata > 0 || queue_depths.db_write > 0 || 
+    let has_queued_items = queue_depths.discover > 0 || queue_depths.hash > 0 ||
+                           queue_depths.metadata > 0 || queue_depths.db_write > 0 ||
                            queue_depths.thumb > 0;
     let is_active = is_scanning || has_queued_items;
-    
+
     // Use last completed scan rate when idle to prevent decay
     let files_per_sec = if is_active {
         stats.files_per_sec()
     } else {
         stats.last_completed_scan_rate().unwrap_or_else(|| stats.files_per_sec())
     };
-    
+
     let mb_per_sec = if is_active {
         stats.bytes_per_sec() / 1_000_000.0
     } else {
         stats.last_completed_scan_mb_per_sec().unwrap_or_else(|| stats.bytes_per_sec() / 1_000_000.0)
     };
-    
+
     // Use current scan rate if available, otherwise overall rate
     // Current scan rate is more meaningful for status
     // If idle (no activity for >5 seconds), use last completed rate instead of continuously decreasing rate
@@ -621,12 +621,12 @@ pub async fn performance(State(state): State<Arc<AppState>>) -> impl IntoRespons
         // If not active, use last completed scan rate, otherwise show 0
         stats.last_completed_scan_rate().unwrap_or(0.0)
     };
-    
+
     // Detect system capabilities
     let cpu_cores = std::thread::available_parallelism()
         .map(|n| n.get() as f64)
         .unwrap_or(4.0);
-    
+
     // Get CPU brand/model information
     let cpu_brand = {
         use sysinfo::System;
@@ -637,7 +637,7 @@ pub async fn performance(State(state): State<Arc<AppState>>) -> impl IntoRespons
             .unwrap_or_else(|| "Unknown".to_string());
         brand
     };
-    
+
     // Get GPU acceleration info
     let gpu_config = crate::utils::ffmpeg::get_gpu_config();
     let gpu_stats = crate::utils::ffmpeg::get_gpu_stats();
@@ -648,22 +648,22 @@ pub async fn performance(State(state): State<Arc<AppState>>) -> impl IntoRespons
         crate::utils::ffmpeg::GpuAccel::VideoToolbox => "VideoToolbox",
         crate::utils::ffmpeg::GpuAccel::Cpu => "CPU",
     };
-    
+
     // Calculate status based on current rate and activity state
     let status = if !is_active {
         "idle"  // No active processing
-    } else if current_rate > 50.0 { 
-        "excellent" 
-    } else if current_rate > 20.0 { 
-        "good" 
-    } else if current_rate > 10.0 { 
-        "average" 
+    } else if current_rate > 50.0 {
+        "excellent"
+    } else if current_rate > 20.0 {
+        "good"
+    } else if current_rate > 10.0 {
+        "average"
     } else if current_rate > 0.1 {
         "slow"
     } else {
         "idle"  // Very low or zero rate means idle
     };
-    
+
     let comparison = serde_json::json!({
         "nazr": {
             "files_per_sec": files_per_sec,  // Overall lifetime average
@@ -702,7 +702,7 @@ pub async fn performance(State(state): State<Arc<AppState>>) -> impl IntoRespons
             "- Network latency (if files are on network storage)"
         ]
     });
-    
+
     (StatusCode::OK, Json(comparison))
 }
 
@@ -721,7 +721,7 @@ pub async fn get_scan_paths(State(state): State<Arc<AppState>>) -> impl IntoResp
             db::query::get_scan_paths(&conn).ok()
         }
     }).await.ok().flatten();
-    
+
     match result {
         Some(mut paths) => {
             // Ensure default root is included if not already present
@@ -750,7 +750,7 @@ pub async fn get_scan_paths(State(state): State<Arc<AppState>>) -> impl IntoResp
 
 pub async fn add_scan_path(State(state): State<Arc<AppState>>, Json(req): Json<AddPathReq>) -> impl IntoResponse {
     use std::sync::atomic::Ordering;
-    
+
     let decoded_path = req.path.clone();
     let result = tokio::task::spawn_blocking({
         let dbp = state.db_path.clone();
@@ -760,7 +760,7 @@ pub async fn add_scan_path(State(state): State<Arc<AppState>>, Json(req): Json<A
             db::writer::add_scan_path(&conn, &path).ok()
         }
     }).await.ok().flatten();
-    
+
     match result {
         Some(_) => {
             // Get or create per-path watcher_paused flag
@@ -772,7 +772,7 @@ pub async fn add_scan_path(State(state): State<Arc<AppState>>, Json(req): Json<A
             };
             // Ensure watcher is marked as active
             path_watcher_paused.store(false, Ordering::SeqCst);
-            
+
             // Start watcher if not already running
             {
                 let mut watchers = state.path_watchers.lock();
@@ -783,20 +783,20 @@ pub async fn add_scan_path(State(state): State<Arc<AppState>>, Json(req): Json<A
                     let dbp = state.db_path.clone();
                     let stats = state.stats.clone();
                     let paused = path_watcher_paused.clone();
-                    
+
                     let handle = tokio::spawn(async move {
                         let _ = crate::pipeline::discover::watch(root, dtx, Some(dbp), g, Some(stats), Some(paused)).await;
                     });
                     watchers.insert(decoded_path.clone(), handle);
                 }
             }
-            
+
             // Determine if this is the first active scan (used to start scan stats)
             let was_scanning = {
                 let map = state.path_scan_running.lock();
                 map.values().any(|flag| flag.load(Ordering::Relaxed))
             };
-            
+
             // Get or create per-path scan_running flag
             let path_scan_running = {
                 let mut map = state.path_scan_running.lock();
@@ -804,7 +804,7 @@ pub async fn add_scan_path(State(state): State<Arc<AppState>>, Json(req): Json<A
                     .or_insert_with(|| Arc::new(std::sync::atomic::AtomicBool::new(false)))
                     .clone()
             };
-            
+
             // Check if already scanning (shouldn't happen for new path, but check anyway)
             if path_scan_running.swap(true, Ordering::SeqCst) {
                 // Path is already being scanned - this shouldn't happen for a newly added path
@@ -813,13 +813,13 @@ pub async fn add_scan_path(State(state): State<Arc<AppState>>, Json(req): Json<A
                     "error": "Path is already being scanned"
                 })));
             }
-            
+
             // If no other scans were running, start global scan stats
             if !was_scanning {
                 state.stats.start_scan();
             }
             state.scan_running.store(true, Ordering::SeqCst);
-            
+
             // Start scan for this path
             let tx = state.queues.discover_tx.clone();
             let gauges = state.gauges.clone();
@@ -828,14 +828,14 @@ pub async fn add_scan_path(State(state): State<Arc<AppState>>, Json(req): Json<A
             let path_scan_map = state.path_scan_running.clone();
             let global_scan_flag = state.scan_running.clone();
             let path_for_scan = decoded_path.clone();
-            
+
             tokio::spawn(async move {
                 info!("scan_start for path: {:?}", path_for_scan);
                 let root = std::path::PathBuf::from(&path_for_scan);
                 let _ = crate::pipeline::discover::scan_bfs(root, tx, gauges, scan_running.clone(), Some(stats.clone())).await;
                 info!("scan_finish for path: {:?}", path_for_scan);
                 scan_running.store(false, Ordering::SeqCst);
-                
+
                 // If no scans remain active, finalize statistics
                 let any_active = path_scan_map.lock()
                     .values()
@@ -848,7 +848,7 @@ pub async fn add_scan_path(State(state): State<Arc<AppState>>, Json(req): Json<A
                     global_scan_flag.store(true, Ordering::SeqCst);
                 }
             });
-            
+
             (StatusCode::OK, Json(serde_json::json!({
                 "success": true,
                 "message": "Path added successfully"
@@ -865,7 +865,7 @@ pub struct RemovePathQuery {
 
 pub async fn remove_scan_path(State(state): State<Arc<AppState>>, Query(params): Query<RemovePathQuery>) -> impl IntoResponse {
     let path_to_remove = params.path.clone();
-    
+
     // Stop scanning and pause watcher for this path
     {
         if let Some(scan_running) = state.path_scan_running.lock().get(&path_to_remove) {
@@ -875,7 +875,7 @@ pub async fn remove_scan_path(State(state): State<Arc<AppState>>, Query(params):
             watcher_paused.store(true, std::sync::atomic::Ordering::SeqCst);
         }
     }
-    
+
     // Abort and remove watcher task
     {
         let mut watchers = state.path_watchers.lock();
@@ -883,42 +883,42 @@ pub async fn remove_scan_path(State(state): State<Arc<AppState>>, Query(params):
             handle.abort();
         }
     }
-    
+
     // Clean up state maps
     {
         state.path_scan_running.lock().remove(&path_to_remove);
         state.path_watcher_paused.lock().remove(&path_to_remove);
     }
-    
+
     // Recompute global scan flag
     let any_active = state.path_scan_running.lock()
         .values()
         .any(|flag| flag.load(std::sync::atomic::Ordering::Relaxed));
     state.scan_running.store(any_active, std::sync::atomic::Ordering::SeqCst);
-    
+
     let result = tokio::task::spawn_blocking({
         let dbp = state.db_path.clone();
         let path_to_remove_db = path_to_remove.clone();
         move || -> Result<(bool, usize, usize), anyhow::Error> {
             let conn = Connection::open(dbp)?;
-            
+
             // First delete all assets from this path
             let (assets_deleted, faces_deleted) = db::writer::delete_assets_by_path_prefix(&conn, &path_to_remove_db)?;
-            
+
             // Then remove the path from scan_paths
             let path_removed = db::writer::remove_scan_path(&conn, &path_to_remove_db)?;
-            
+
             Ok((path_removed, assets_deleted, faces_deleted))
         }
     }).await;
-    
+
     match result {
         Ok(Ok((path_removed, assets_deleted, faces_deleted))) => {
             // Decrement files_committed to reflect deleted assets
             if assets_deleted > 0 {
                 state.stats.dec_files_committed(assets_deleted as u64);
             }
-            
+
             (StatusCode::OK, Json(serde_json::json!({
                 "success": true,
                 "path_removed": path_removed,
@@ -945,11 +945,11 @@ pub struct PathActionReq {
 
 pub async fn scan_path(State(state): State<Arc<AppState>>, Json(req): Json<PathActionReq>) -> impl IntoResponse {
     use std::sync::atomic::Ordering;
-    
+
     let decoded_path = req.path;
     let default_root = state.paths.root.to_string_lossy().to_string();
     let is_default_path = decoded_path == default_root;
-    
+
     // Check if path exists in scan_paths table (skip check for default root path)
     let path_exists = if is_default_path {
         true
@@ -965,19 +965,19 @@ pub async fn scan_path(State(state): State<Arc<AppState>>, Json(req): Json<PathA
             }
         }).await.ok().flatten().unwrap_or(false)
     };
-    
+
     if !path_exists {
         return (StatusCode::NOT_FOUND, Json(serde_json::json!({
             "error": "Path not found in scan paths"
         })));
     }
-    
+
     // Determine if this is the first active scan (used to start scan stats)
     let was_scanning = {
         let map = state.path_scan_running.lock();
         map.values().any(|flag| flag.load(Ordering::Relaxed))
     };
-    
+
     // Get or create per-path scan_running flag
     let path_scan_running = {
         let mut map = state.path_scan_running.lock();
@@ -985,14 +985,14 @@ pub async fn scan_path(State(state): State<Arc<AppState>>, Json(req): Json<PathA
             .or_insert_with(|| Arc::new(std::sync::atomic::AtomicBool::new(false)))
             .clone()
     };
-    
+
     // Check if already scanning
     if path_scan_running.swap(true, Ordering::SeqCst) {
         return (StatusCode::CONFLICT, Json(serde_json::json!({
             "error": "Path is already being scanned"
         })));
     }
-    
+
     // Get or create per-path watcher_paused flag
     let path_watcher_paused = {
         let mut map = state.path_watcher_paused.lock();
@@ -1002,7 +1002,7 @@ pub async fn scan_path(State(state): State<Arc<AppState>>, Json(req): Json<PathA
     };
     // Ensure watcher is marked as active when starting/resuming scan
     path_watcher_paused.store(false, Ordering::SeqCst);
-    
+
     // Start watcher if not already running
     {
         let mut watchers = state.path_watchers.lock();
@@ -1013,20 +1013,20 @@ pub async fn scan_path(State(state): State<Arc<AppState>>, Json(req): Json<PathA
             let dbp = state.db_path.clone();
             let stats = state.stats.clone();
             let paused = path_watcher_paused.clone();
-            
+
             let handle = tokio::spawn(async move {
                 let _ = crate::pipeline::discover::watch(root, dtx, Some(dbp), g, Some(stats), Some(paused)).await;
             });
             watchers.insert(decoded_path.clone(), handle);
         }
     }
-    
+
     // If no other scans were running, start global scan stats
     if !was_scanning {
         state.stats.start_scan();
     }
     state.scan_running.store(true, Ordering::SeqCst);
-    
+
     // Start scan for this path
     let tx = state.queues.discover_tx.clone();
     let gauges = state.gauges.clone();
@@ -1035,14 +1035,14 @@ pub async fn scan_path(State(state): State<Arc<AppState>>, Json(req): Json<PathA
     let path_scan_map = state.path_scan_running.clone();
     let global_scan_flag = state.scan_running.clone();
     let path_for_scan = decoded_path.clone();
-    
+
     tokio::spawn(async move {
         info!("scan_start for path: {:?}", path_for_scan);
         let root = std::path::PathBuf::from(&path_for_scan);
         let _ = crate::pipeline::discover::scan_bfs(root, tx, gauges, scan_running.clone(), Some(stats.clone())).await;
         info!("scan_finish for path: {:?}", path_for_scan);
         scan_running.store(false, Ordering::SeqCst);
-        
+
         // If no scans remain active, finalize statistics
         let any_active = path_scan_map.lock()
             .values()
@@ -1055,7 +1055,7 @@ pub async fn scan_path(State(state): State<Arc<AppState>>, Json(req): Json<PathA
             global_scan_flag.store(true, Ordering::SeqCst);
         }
     });
-    
+
     (StatusCode::ACCEPTED, Json(serde_json::json!({
         "success": true,
         "message": "Scan started for path"
@@ -1064,14 +1064,14 @@ pub async fn scan_path(State(state): State<Arc<AppState>>, Json(req): Json<PathA
 
 pub async fn pause_path(State(state): State<Arc<AppState>>, Json(req): Json<PathActionReq>) -> impl IntoResponse {
     use std::sync::atomic::Ordering;
-    
+
     let decoded_path = req.path;
-    
+
     // Stop scanning for this path
     if let Some(scan_running) = state.path_scan_running.lock().get(&decoded_path) {
         scan_running.store(false, Ordering::SeqCst);
     }
-    
+
     // Pause watcher for this path
     let watcher_paused = {
         let mut map = state.path_watcher_paused.lock();
@@ -1080,13 +1080,13 @@ pub async fn pause_path(State(state): State<Arc<AppState>>, Json(req): Json<Path
             .clone()
     };
     watcher_paused.store(true, Ordering::SeqCst);
-    
+
     // Recompute global scan flag
     let any_active = state.path_scan_running.lock()
         .values()
         .any(|flag| flag.load(Ordering::Relaxed));
     state.scan_running.store(any_active, Ordering::SeqCst);
-    
+
     (StatusCode::OK, Json(serde_json::json!({
         "success": true,
         "message": "Path paused"
@@ -1095,9 +1095,9 @@ pub async fn pause_path(State(state): State<Arc<AppState>>, Json(req): Json<Path
 
 pub async fn resume_path(State(state): State<Arc<AppState>>, Json(req): Json<PathActionReq>) -> impl IntoResponse {
     use std::sync::atomic::Ordering;
-    
+
     let decoded_path = req.path;
-    
+
     // Resume watcher for this path
     let watcher_paused = {
         let mut map = state.path_watcher_paused.lock();
@@ -1106,7 +1106,7 @@ pub async fn resume_path(State(state): State<Arc<AppState>>, Json(req): Json<Pat
             .clone()
     };
     watcher_paused.store(false, Ordering::SeqCst);
-    
+
     (StatusCode::OK, Json(serde_json::json!({
         "success": true,
         "message": "Path resumed"
@@ -1115,21 +1115,21 @@ pub async fn resume_path(State(state): State<Arc<AppState>>, Json(req): Json<Pat
 
 pub async fn get_path_status(State(state): State<Arc<AppState>>, Query(params): Query<PathActionReq>) -> impl IntoResponse {
     use std::sync::atomic::Ordering;
-    
+
     let decoded_path = params.path;
-    
+
     let scanning = state.path_scan_running.lock()
         .get(&decoded_path)
         .map(|flag| flag.load(Ordering::Relaxed))
         .unwrap_or(false);
-    
+
     let watcher_paused = state.path_watcher_paused.lock()
         .get(&decoded_path)
         .map(|flag| flag.load(Ordering::Relaxed))
         .unwrap_or(false);
-    
+
     let watching = state.path_watchers.lock().contains_key(&decoded_path);
-    
+
     (StatusCode::OK, Json(serde_json::json!({
         "scanning": scanning,
         "watcher_paused": watcher_paused,
@@ -1139,14 +1139,14 @@ pub async fn get_path_status(State(state): State<Arc<AppState>>, Query(params): 
 
 pub async fn diag_ffmpeg() -> impl IntoResponse {
     use std::process::Command;
-    
+
     let mut info = serde_json::json!({
         "ffmpeg_version": "unknown",
         "hwaccels": [],
         "filters": [],
         "gpu_config": {}
     });
-    
+
     // Get ffmpeg version
     if let Ok(output) = Command::new("ffmpeg").args(&["-version"]).output() {
         if output.status.success() {
@@ -1155,7 +1155,7 @@ pub async fn diag_ffmpeg() -> impl IntoResponse {
             info["ffmpeg_version"] = serde_json::Value::String(first_line.to_string());
         }
     }
-    
+
     // Get available hardware accelerators
     if let Ok(output) = Command::new("ffmpeg").args(&["-hide_banner", "-hwaccels"]).output() {
         if output.status.success() {
@@ -1171,7 +1171,7 @@ pub async fn diag_ffmpeg() -> impl IntoResponse {
             );
         }
     }
-    
+
     // Get available filters (check for GPU scaling filters)
     if let Ok(output) = Command::new("ffmpeg").args(&["-hide_banner", "-filters"]).output() {
         if output.status.success() {
@@ -1187,7 +1187,7 @@ pub async fn diag_ffmpeg() -> impl IntoResponse {
             );
         }
     }
-    
+
     // Get current GPU config
     let gpu_config = crate::utils::ffmpeg::get_gpu_config();
     let accel_str = match gpu_config.accel {
@@ -1198,12 +1198,12 @@ pub async fn diag_ffmpeg() -> impl IntoResponse {
         crate::utils::ffmpeg::GpuAccel::Cpu => "CPU",
     };
     let gpu_stats = crate::utils::ffmpeg::get_gpu_stats();
-    
+
     // Get device counts for diagnostics
     let cuda_devices = crate::utils::ffmpeg::check_cuda_devices();
     let intel_gpu = crate::utils::ffmpeg::check_intel_gpu_devices();
     let opencl_devices = crate::utils::ffmpeg::check_opencl_devices();
-    
+
     info["gpu_config"] = serde_json::json!({
         "accel": accel_str,
         "enabled": gpu_config.enabled && !gpu_stats.auto_disabled,
@@ -1215,7 +1215,7 @@ pub async fn diag_ffmpeg() -> impl IntoResponse {
             "opencl": opencl_devices,
         },
     });
-    
+
     (StatusCode::OK, Json(info))
 }
 
@@ -1239,9 +1239,9 @@ pub async fn stream_video(State(state): State<Arc<AppState>>, Path(id): Path<i64
         Some((path, mime_str, codec)) => (path, mime_str, codec),
         None => return StatusCode::NOT_FOUND.into_response(),
     };
-    
+
     let derived_dir = state.paths.data.join("derived");
-    
+
     // Determine which file to serve (original or transcoded)
     // MIME-based compatibility first, then refine for MP4 based on stored codec.
     let mut browser_compatible = is_browser_compatible_video(&mime_str);
@@ -1293,13 +1293,13 @@ pub async fn stream_video(State(state): State<Arc<AppState>>, Path(id): Path<i64
                 return serve_video_file(&file_path, &mime_str, &headers).await.into_response();
             }
         };
-        
+
         let transcoded_path = get_transcoded_video_path(&derived_dir, &sha256);
-        
+
         // Check if transcoded version exists (could be MP4 or WebM)
         let transcoded_mp4 = transcoded_path.clone();
         let transcoded_webm = transcoded_path.with_extension("webm");
-        
+
         // Check for cached versions first
         if tokio::fs::metadata(&transcoded_mp4).await.is_ok() {
             // Use cached MP4 version
@@ -1319,7 +1319,7 @@ pub async fn stream_video(State(state): State<Arc<AppState>>, Path(id): Path<i64
                             (transcoded_path, "video/mp4".to_string())
                         }
                         Ok(meta) => {
-                            tracing::error!("Transcoded file exists but is invalid: {} (is_file: {}, size: {})", 
+                            tracing::error!("Transcoded file exists but is invalid: {} (is_file: {}, size: {})",
                                 transcoded_path.display(), meta.is_file(), meta.len());
                             // Fallback to original (will likely fail in browser, but file is available for download)
                             return serve_video_file(&file_path, &mime_str, &headers).await.into_response();
@@ -1370,7 +1370,7 @@ pub async fn stream_video(State(state): State<Arc<AppState>>, Path(id): Path<i64
             }
         }
     };
-    
+
     // Serve the video file (original or transcoded)
     serve_video_file(&video_path, &content_mime, &headers).await.into_response()
 }
@@ -1384,10 +1384,10 @@ async fn serve_video_file(file_path: &std::path::Path, mime_str: &str, headers: 
             return StatusCode::NOT_FOUND.into_response();
         }
     };
-    
+
     if metadata.is_file() {
         let file_size = metadata.len();
-        
+
         // Check for Range header
         if let Some(range_header) = headers.get(header::RANGE) {
             if let Ok(range_str) = range_header.to_str() {
@@ -1395,7 +1395,7 @@ async fn serve_video_file(file_path: &std::path::Path, mime_str: &str, headers: 
                 if let Some(range) = parse_range(range_str, file_size) {
                     let (start, end) = range;
                     let content_length = end - start + 1;
-                    
+
                     // Read the requested byte range
                     if let Ok(mut file) = tokio::fs::File::open(file_path).await {
                         use tokio::io::{AsyncSeekExt, AsyncReadExt};
@@ -1435,7 +1435,7 @@ async fn serve_video_file(file_path: &std::path::Path, mime_str: &str, headers: 
                 }
             }
         }
-        
+
         // No range request or invalid range - serve entire file
         if let Ok(bytes) = tokio::fs::read(file_path).await {
             let mut resp = axum::http::Response::builder().status(StatusCode::OK);
@@ -1483,12 +1483,12 @@ fn get_transcoded_video_path(derived_dir: &std::path::Path, sha256: &str) -> std
 
 async fn transcode_video_to_mp4(src_path: &std::path::Path, dst_path: &std::path::Path) -> Result<(), anyhow::Error> {
     use std::time::Duration;
-    
+
     // Ensure parent directory exists
     if let Some(parent) = dst_path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    
+
     // Get GPU config for potential acceleration
     let gpu_config = crate::utils::ffmpeg::get_gpu_config();
     // Respect auto-disabled GPU flag: if disabled, fall back to CPU.
@@ -1497,13 +1497,13 @@ async fn transcode_video_to_mp4(src_path: &std::path::Path, dst_path: &std::path
     } else {
         crate::utils::ffmpeg::GpuAccel::Cpu
     };
-    
+
     // Build FFmpeg args based on GPU availability
     let mut args = Vec::new();
-    
+
     // Overwrite output file if it exists
     args.push("-y".to_string());
-    
+
     // Add GPU acceleration settings (must come before input file)
     match accel {
         crate::utils::ffmpeg::GpuAccel::Cuda => {
@@ -1527,11 +1527,11 @@ async fn transcode_video_to_mp4(src_path: &std::path::Path, dst_path: &std::path
             // No hardware acceleration
         }
     }
-    
+
     // Add input file
     args.push("-i".to_string());
     args.push(src_path.to_string_lossy().to_string());
-    
+
     // Add encoding settings (after input file)
     match accel {
         crate::utils::ffmpeg::GpuAccel::Cuda => {
@@ -1575,24 +1575,24 @@ async fn transcode_video_to_mp4(src_path: &std::path::Path, dst_path: &std::path
             args.push("23".to_string());
         }
     }
-    
+
     // Audio encoding
     args.push("-c:a".to_string());
     args.push("aac".to_string());
     args.push("-b:a".to_string());
     args.push("192k".to_string());
-    
+
     // Output format settings
     args.push("-movflags".to_string());
     args.push("+faststart".to_string()); // Enable streaming
     args.push("-f".to_string());
     args.push("mp4".to_string());
-    
+
     // Output file
     args.push(dst_path.to_string_lossy().to_string());
-    
+
     tracing::info!("Transcoding video: {} -> {}", src_path.display(), dst_path.display());
-    
+
     // Run FFmpeg with timeout (10 minutes for long videos) in a blocking task
     let src_path_str = src_path.to_path_buf();
     let dst_path_str = dst_path.to_path_buf();
@@ -1620,14 +1620,14 @@ async fn transcode_video_to_mp4(src_path: &std::path::Path, dst_path: &std::path
     } else {
         crate::utils::ffmpeg::increment_cpu_job();
     }
-    
+
     // Verify the output file exists and has content
     // Small delay to ensure file is fully written to disk
     std::thread::sleep(std::time::Duration::from_millis(100));
-    
+
     match std::fs::metadata(&dst_path_str) {
         Ok(meta) if meta.is_file() && meta.len() > 0 => {
-            tracing::info!("Video transcoding completed successfully: {} -> {} ({} bytes)", 
+            tracing::info!("Video transcoding completed successfully: {} -> {} ({} bytes)",
                 src_path_str.display(), dst_path_str.display(), meta.len());
             Ok(())
         }
@@ -1643,12 +1643,12 @@ async fn transcode_video_to_mp4(src_path: &std::path::Path, dst_path: &std::path
 
 async fn transcode_video_to_mp4_cpu(src_path: &std::path::Path, dst_path: &std::path::Path) -> Result<(), anyhow::Error> {
     use std::time::Duration;
-    
+
     // Ensure parent directory exists
     if let Some(parent) = dst_path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    
+
     // Try encoders in order of preference
     // Note: mpeg4 (MPEG-4 Part 2) is not well-supported by browsers in MP4 containers.
     // Browsers expect H.264 (MPEG-4 Part 10/AVC), so we prioritize libx264 and WebM codecs.
@@ -1661,33 +1661,33 @@ async fn transcode_video_to_mp4_cpu(src_path: &std::path::Path, dst_path: &std::
         ("libvpx", ("webm", vec!["-quality", "good", "-speed", "1", "-b:v", "2M"])), // WebM with VP8 - use quality/speed instead of crf
         ("mpeg4", ("mp4", vec!["-qscale:v", "3", "-pix_fmt", "yuv420p"])), // Last resort
     ];
-    
+
     let mut last_error = None;
-    
+
     for (encoder, (container_format, encoder_args)) in encoder_configs {
         // Build FFmpeg args for CPU-only encoding
         let mut args = Vec::new();
-        
+
         // Overwrite output file if it exists
         args.push("-y".to_string());
-        
+
         // Add input file
         args.push("-i".to_string());
         args.push(src_path.to_string_lossy().to_string());
-        
+
         // Add color space conversion for MJPEG inputs (yuvj422p -> yuv420p)
         // This fixes the "deprecated pixel format" warning and ensures proper color range
         // MJPEG uses full-range JPEG colorspace (yuvj422p), need to convert to standard yuv420p
         args.push("-vf".to_string());
         args.push("format=yuv420p".to_string()); // Convert to standard yuv420p with proper color range
-        
+
         // Try this encoder
         args.push("-c:v".to_string());
         args.push(encoder.to_string());
         for arg in encoder_args {
             args.push(arg.to_string());
         }
-        
+
         // Audio encoding - use opus for WebM, aac for MP4
         args.push("-c:a".to_string());
         if container_format == "webm" {
@@ -1699,7 +1699,7 @@ async fn transcode_video_to_mp4_cpu(src_path: &std::path::Path, dst_path: &std::
             args.push("-b:a".to_string());
             args.push("192k".to_string());
         }
-        
+
         // Output format settings
         if container_format == "mp4" {
             args.push("-movflags".to_string());
@@ -1707,7 +1707,7 @@ async fn transcode_video_to_mp4_cpu(src_path: &std::path::Path, dst_path: &std::
         }
         args.push("-f".to_string());
         args.push(container_format.to_string());
-        
+
         // Output file - adjust extension based on container format
         let output_path = if container_format == "webm" {
             dst_path.with_extension("webm")
@@ -1715,23 +1715,23 @@ async fn transcode_video_to_mp4_cpu(src_path: &std::path::Path, dst_path: &std::
             dst_path.to_path_buf()
         };
         args.push(output_path.to_string_lossy().to_string());
-        
+
         tracing::info!("Trying CPU transcoding with encoder '{}' ({}): {} -> {}", encoder, container_format, src_path.display(), output_path.display());
-        
+
         // Run FFmpeg with timeout
         let src_path_str = src_path.to_path_buf();
         let output_path_str = output_path.clone();
         let output = tokio::task::spawn_blocking(move || {
             crate::utils::ffmpeg::run_ffmpeg_with_timeout(args, Duration::from_secs(600))
         }).await??;
-        
+
         if output.status.success() {
             // Verify the output file exists and has content
             std::thread::sleep(std::time::Duration::from_millis(100));
-            
+
             match std::fs::metadata(&output_path_str) {
                 Ok(meta) if meta.is_file() && meta.len() > 0 => {
-                    tracing::info!("CPU video transcoding succeeded with encoder '{}' ({}): {} -> {} ({} bytes)", 
+                    tracing::info!("CPU video transcoding succeeded with encoder '{}' ({}): {} -> {} ({} bytes)",
                         encoder, container_format, src_path_str.display(), output_path_str.display(), meta.len());
                     // Increment CPU job counter for periodic GPU retry mechanism
                     crate::utils::ffmpeg::increment_cpu_job();
@@ -1758,9 +1758,9 @@ async fn transcode_video_to_mp4_cpu(src_path: &std::path::Path, dst_path: &std::
             continue; // Try next encoder
         }
     }
-    
+
     // All encoders failed
-    Err(anyhow::anyhow!("All video encoders failed. Last error: {}", 
+    Err(anyhow::anyhow!("All video encoders failed. Last error: {}",
         last_error.unwrap_or_else(|| "Unknown error".to_string())))
 }
 
@@ -1773,13 +1773,13 @@ fn parse_range(range_str: &str, file_size: u64) -> Option<(u64, u64)> {
             } else {
                 start_str.parse::<u64>().ok()?
             };
-            
+
             let end = if end_str.is_empty() {
                 file_size - 1
             } else {
                 end_str.parse::<u64>().ok()?
             };
-            
+
             if start <= end && end < file_size {
                 return Some((start, end));
             }
@@ -1796,17 +1796,17 @@ pub async fn download_asset(State(state): State<Arc<AppState>>, Path(id): Path<i
             crate::db::query::get_asset_path(&conn, id).ok()?
         }
     }).await.ok().flatten();
-    
+
     if let Some(file_path) = path {
         if let Ok(bytes) = tokio::fs::read(&file_path).await {
             let filename = std::path::Path::new(&file_path)
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("file");
-            
+
             let mime = mime_guess::from_path(&file_path)
                 .first_or_octet_stream();
-            
+
             let mut resp = axum::http::Response::builder().status(StatusCode::OK);
             let headers = resp.headers_mut().unwrap();
             headers.insert(
@@ -2012,7 +2012,7 @@ pub async fn delete_asset(State(state): State<Arc<AppState>>, Path(id): Path<i64
             Ok(deleted)
         }
     }).await;
-    
+
     match result {
         Ok(Ok(true)) => (StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response(),
         Ok(Ok(false)) => (
@@ -2051,7 +2051,7 @@ pub async fn delete_asset_permanent(State(state): State<Arc<AppState>>, Path(id)
             perform_permanent_delete(&conn, &derived_dir, &paths, id)
         }
     }).await;
-    
+
     match result {
         Ok(Ok(outcome)) => {
             let status = if outcome.deleted {
@@ -2093,7 +2093,7 @@ pub async fn delete_assets_permanent(
             Json(serde_json::json!({"success": false, "error": "No asset IDs provided"}))
         ).into_response();
     }
-    
+
     let derived_dir = state.paths.data.join("derived");
     let paths = state.paths.clone();
     let ids = payload.ids;
@@ -2111,7 +2111,7 @@ pub async fn delete_assets_permanent(
             Ok(outcomes)
         }
     }).await;
-    
+
     match result {
         Ok(Ok(results)) => {
             let any_failure = results.iter().any(|r| !r.deleted);
@@ -2204,7 +2204,7 @@ pub async fn extract_audio_mp3(State(state): State<Arc<AppState>>, Path(id): Pat
             // Try libmp3lame first (best quality), then libshine (if built), then generic mp3
             let encoders = vec!["libmp3lame", "libshine", "mp3"];
             let mut last_error = None;
-            
+
             for encoder in encoders {
                 tracing::info!("Attempting audio extraction with encoder '{}' for {}", encoder, file_path_for_closure);
                 let args = vec![
@@ -2218,23 +2218,23 @@ pub async fn extract_audio_mp3(State(state): State<Arc<AppState>>, Path(id): Pat
                     "-loglevel".to_string(), "warning".to_string(), // Changed to warning to see progress
                     "-".to_string(),
                 ];
-                
+
                 // Log the full command for debugging
                 let cmd_str = args.join(" ");
                 tracing::info!("FFmpeg command: {}", cmd_str);
-                
+
                 let start_time = std::time::Instant::now();
                 match ffmpeg::run_ffmpeg_with_timeout(args.clone(), std::time::Duration::from_secs(600)) {
                     Ok(output) if output.status.success() => {
                         let elapsed = start_time.elapsed();
-                        tracing::info!("Audio extraction succeeded with encoder '{}' in {:?}, output size: {} bytes", 
+                        tracing::info!("Audio extraction succeeded with encoder '{}' in {:?}, output size: {} bytes",
                             encoder, elapsed, output.stdout.len());
                         return Ok(output);
                     }
                     Ok(output) => {
                         let elapsed = start_time.elapsed();
                         let err_msg = String::from_utf8_lossy(&output.stderr).to_string();
-                        tracing::warn!("Encoder '{}' failed after {:?} (exit code: {}): {}", 
+                        tracing::warn!("Encoder '{}' failed after {:?} (exit code: {}): {}",
                             encoder, elapsed, output.status.code().unwrap_or(-1), err_msg);
                         last_error = Some(format!("Encoder '{}' failed: {}", encoder, err_msg));
                         // Continue to next encoder
@@ -2248,7 +2248,7 @@ pub async fn extract_audio_mp3(State(state): State<Arc<AppState>>, Path(id): Pat
                     }
                 }
             }
-            
+
             // All encoders failed
             tracing::error!("All MP3 encoders failed for {}", file_path_for_closure);
             Err(anyhow::anyhow!("All MP3 encoders failed. Last error: {}", last_error.unwrap_or_else(|| "Unknown error".to_string())))
@@ -2347,56 +2347,56 @@ pub struct BrowseQuery {
 
 pub async fn browse_directory(State(_state): State<Arc<AppState>>, Query(params): Query<BrowseQuery>) -> impl IntoResponse {
     let requested_path = params.path.as_deref().unwrap_or("/");
-    
+
     // Allow browsing from container root (/)
     // Security: Only allow absolute paths, prevent directory traversal attacks
     let target_path = if requested_path == "/" || requested_path.is_empty() {
         std::path::PathBuf::from("/")
     } else {
         let requested = std::path::PathBuf::from(requested_path);
-        
+
         // Only allow absolute paths
         if !requested.is_absolute() {
             return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
                 "error": "Path must be absolute"
             })));
         }
-        
+
         // Normalize the path to prevent directory traversal
         let resolved = requested.canonicalize().unwrap_or(requested);
-        
+
         // Ensure it's still absolute after canonicalization
         if !resolved.is_absolute() {
             return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
                 "error": "Invalid path"
             })));
         }
-        
+
         resolved
     };
-    
+
     let result = tokio::task::spawn_blocking({
         let path = target_path.clone();
         move || -> Result<Vec<serde_json::Value>, anyhow::Error> {
             let mut entries = Vec::new();
-            
+
             if !path.exists() {
                 return Ok(entries);
             }
-            
+
             if !path.is_dir() {
                 return Err(anyhow::anyhow!("Path is not a directory"));
             }
-            
+
             let dir_entries = std::fs::read_dir(&path)?;
             let mut dirs = Vec::new();
             let mut files = Vec::new();
-            
+
             for entry_result in dir_entries {
                 let entry = entry_result?;
                 let entry_path = entry.path();
                 let metadata = entry.metadata().ok();
-                
+
                 // Skip hidden files/directories
                 if entry_path.file_name()
                     .and_then(|n| n.to_str())
@@ -2404,26 +2404,26 @@ pub async fn browse_directory(State(_state): State<Arc<AppState>>, Query(params)
                     .unwrap_or(false) {
                     continue;
                 }
-                
+
                 let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
                 let name = entry_path.file_name()
                     .and_then(|n| n.to_str())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "unknown".to_string());
-                
+
                 let entry_json = serde_json::json!({
                     "name": name,
                     "path": entry_path.to_string_lossy().to_string(),
                     "is_dir": is_dir,
                 });
-                
+
                 if is_dir {
                     dirs.push(entry_json);
                 } else {
                     files.push(entry_json);
                 }
             }
-            
+
             // Sort: directories first, then files, both alphabetically
             dirs.sort_by(|a, b| {
                 a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
@@ -2431,14 +2431,14 @@ pub async fn browse_directory(State(_state): State<Arc<AppState>>, Query(params)
             files.sort_by(|a, b| {
                 a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
             });
-            
+
             entries.extend(dirs);
             entries.extend(files);
-            
+
             Ok(entries)
         }
     }).await;
-    
+
     match result {
         Ok(Ok(entries)) => {
             (StatusCode::OK, Json(serde_json::json!({
@@ -2468,10 +2468,10 @@ pub async fn save_orientation(State(state): State<Arc<AppState>>, Path(id): Path
     let dbp = state.db_path.clone();
     let paths = state.paths.clone();
     let rotation = req.rotation;
-    
+
     // Normalize rotation to 0-360 range
     let normalized_rotation = ((rotation % 360) + 360) % 360;
-    
+
     // Only allow 90-degree increments
     if normalized_rotation != 0 && normalized_rotation != 90 && normalized_rotation != 180 && normalized_rotation != 270 {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
@@ -2479,17 +2479,17 @@ pub async fn save_orientation(State(state): State<Arc<AppState>>, Path(id): Path
             "error": "Rotation must be a multiple of 90 degrees"
         }))).into_response();
     }
-    
+
     let result = tokio::task::spawn_blocking(move || -> Result<()> {
         let conn = Connection::open(dbp)?;
-        
+
         // Get asset path
         let path: String = conn.query_row(
             "SELECT path FROM assets WHERE id = ?1",
             params![id],
             |row| row.get(0)
         )?;
-        
+
         let resolved_path = crate::utils::path::resolve_asset_path(&path, &paths);
         if !resolved_path.exists() {
             anyhow::bail!(
@@ -2504,7 +2504,7 @@ pub async fn save_orientation(State(state): State<Arc<AppState>>, Path(id): Path
             let resolved_str = resolved_path.to_string_lossy();
             // Load image with libvips
             let img = libvips::VipsImage::new_from_file(resolved_str.as_ref())?;
-            
+
             // Determine rotation angle based on normalized rotation
             let rotated = match normalized_rotation {
                 90 => libvips::ops::rot(&img, Angle::D90)?,
@@ -2512,7 +2512,7 @@ pub async fn save_orientation(State(state): State<Arc<AppState>>, Path(id): Path
                 270 => libvips::ops::rot(&img, Angle::D270)?,
                 _ => img, // 0 degrees, no rotation needed
             };
-            
+
             // Save rotated image back to disk
             // Use the same format as the original file
             rotated.image_write_to_file(resolved_str.as_ref())?;
@@ -2523,7 +2523,7 @@ pub async fn save_orientation(State(state): State<Arc<AppState>>, Path(id): Path
             anyhow::bail!("Image rotation not available on Windows MSVC (libvips not supported)")
         }
     }).await;
-    
+
     match result {
         Ok(Ok(())) => {
             (StatusCode::OK, Json(serde_json::json!({
