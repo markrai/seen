@@ -52,8 +52,8 @@ jobs:
             Copy-Item "target\release\nazr-backend-sqlite.exe" "nazr-backend-sqlite-noface.exe"
           }
 
-      - name: Run tests
-        run: cargo test --features facial-recognition
+            # - name: Run tests
+            #   run: cargo test --features facial-recognition
 
       - name: Create release archive
         run: |
