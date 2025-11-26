@@ -24,9 +24,23 @@ fn thumb_path(derived: &Path, sha_hex: &str, size: i32) -> PathBuf {
 
 #[cfg(not(target_env = "msvc"))]
 fn image_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
-    let img = libvips::VipsImage::new_from_file(src)?;
-    let out = libvips::ops::thumbnail_image(&img, size)?;
-    out.image_write_to_file(dst.to_string_lossy().as_ref())?;
+    let img = libvips::VipsImage::new_from_file(src)
+        .map_err(|e| anyhow::anyhow!("Failed to load image {}: {}", src, e))?;
+    let out = libvips::ops::thumbnail_image(&img, size)
+        .map_err(|e| anyhow::anyhow!("Failed to create thumbnail for {}: {}", src, e))?;
+    let write_result = out.image_write_to_file(dst.to_string_lossy().as_ref())
+        .map_err(|e| anyhow::anyhow!("Failed to write thumbnail file for {}: {}", src, e));
+    
+    // Clean up partial file on failure
+    if let Err(e) = write_result {
+        if dst.exists() {
+            if let Err(rm_err) = std::fs::remove_file(dst) {
+                warn!("Failed to clean up partial thumbnail file {:?} after write error: {}", dst, rm_err);
+            }
+        }
+        return Err(e);
+    }
+    
     Ok(())
 }
 
@@ -36,7 +50,7 @@ fn image_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
     
     // Load image using image crate
     let img = image::open(src)
-        .map_err(|e| anyhow::anyhow!("Failed to decode image: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to decode image {}: {}", src, e))?;
     
     // Resize maintaining aspect ratio
     let resized = img.thumbnail(size as u32, size as u32);
@@ -52,8 +66,18 @@ fn image_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
     let webp_data = encoder.encode(85.0); // Quality 85 (0-100)
     
     // Write to file - WebPMemory implements AsRef<[u8]>
-    std::fs::write(dst, webp_data.as_ref())
-        .map_err(|e| anyhow::anyhow!("Failed to write WebP file: {}", e))?;
+    let write_result = std::fs::write(dst, webp_data.as_ref())
+        .map_err(|e| anyhow::anyhow!("Failed to write WebP file for {}: {}", src, e));
+    
+    // Clean up partial file on failure
+    if let Err(e) = write_result {
+        if dst.exists() {
+            if let Err(rm_err) = std::fs::remove_file(dst) {
+                warn!("Failed to clean up partial thumbnail file {:?} after write error: {}", dst, rm_err);
+            }
+        }
+        return Err(e);
+    }
     
     Ok(())
 }
@@ -278,40 +302,56 @@ fn video_make_thumb(src: &str, dst: &Path, size: i32) -> Result<()> {
                    src, config.enabled, true, true);
             anyhow::bail!("ffmpeg extracted empty frame for {}: all extraction paths (GPU, CPU, minimal) failed", src);
         }
-        #[cfg(not(target_env = "msvc"))]
-        {
-            let img = libvips::VipsImage::new_from_buffer(&data, "")?;
-            img.image_write_to_file(dst.to_string_lossy().as_ref())?;
-            Ok(())
+        
+        // Write file with cleanup on failure
+        let write_result = {
+            #[cfg(not(target_env = "msvc"))]
+            {
+                let img = libvips::VipsImage::new_from_buffer(&data, "")
+                    .map_err(|e| anyhow::anyhow!("Failed to decode frame buffer for {}: {}", src, e))?;
+                img.image_write_to_file(dst.to_string_lossy().as_ref())
+                    .map_err(|e| anyhow::anyhow!("Failed to write thumbnail file for {}: {}", src, e))
+            }
+            #[cfg(target_env = "msvc")]
+            {
+                // Use image crate to convert ffmpeg output to WebP
+                use image::DynamicImage;
+                
+                // Decode the JPEG/MJPEG frame from ffmpeg using image crate
+                let img = image::load_from_memory(&data)
+                    .map_err(|e| anyhow::anyhow!("Failed to decode frame for {}: {}", src, e))?;
+                
+                // Resize maintaining aspect ratio
+                let resized = img.thumbnail(size as u32, size as u32);
+                
+                // Convert to RGB8 if needed
+                let rgb8 = match resized {
+                    DynamicImage::ImageRgb8(img) => img,
+                    img => img.to_rgb8(),
+                };
+                
+                // Encode as WebP
+                let encoder = webp::Encoder::from_rgb(&rgb8, rgb8.width(), rgb8.height());
+                let webp_data = encoder.encode(85.0);
+                
+                // Write to file - WebPMemory implements AsRef<[u8]>
+                std::fs::write(dst, webp_data.as_ref())
+                    .map_err(|e| anyhow::anyhow!("Failed to write WebP file for {}: {}", src, e))
+            }
+        };
+        
+        // Clean up partial file on failure
+        if let Err(e) = write_result {
+            // Attempt to remove partial file if it exists
+            if dst.exists() {
+                if let Err(rm_err) = std::fs::remove_file(dst) {
+                    warn!("Failed to clean up partial thumbnail file {:?} after write error: {}", dst, rm_err);
+                }
+            }
+            return Err(e);
         }
-        #[cfg(target_env = "msvc")]
-        {
-            // Use image crate to convert ffmpeg output to WebP
-            use image::DynamicImage;
-            
-            // Decode the JPEG/MJPEG frame from ffmpeg using image crate
-            let img = image::load_from_memory(&data)
-                .map_err(|e| anyhow::anyhow!("Failed to decode frame: {}", e))?;
-            
-            // Resize maintaining aspect ratio
-            let resized = img.thumbnail(size as u32, size as u32);
-            
-            // Convert to RGB8 if needed
-            let rgb8 = match resized {
-                DynamicImage::ImageRgb8(img) => img,
-                img => img.to_rgb8(),
-            };
-            
-            // Encode as WebP
-            let encoder = webp::Encoder::from_rgb(&rgb8, rgb8.width(), rgb8.height());
-            let webp_data = encoder.encode(85.0);
-            
-            // Write to file - WebPMemory implements AsRef<[u8]>
-            std::fs::write(dst, webp_data.as_ref())
-                .map_err(|e| anyhow::anyhow!("Failed to write WebP file: {}", e))?;
-            
-            Ok(())
-        }
+        
+        Ok(())
     } else {
         warn!("All video frame extraction paths failed for {}", src);
         anyhow::bail!("Failed to extract video frame for {}: all extraction paths (GPU, CPU, minimal) exhausted", src);

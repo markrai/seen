@@ -569,13 +569,32 @@ pub fn run_ffmpeg_with_timeout(args: Vec<String>, timeout: Duration) -> Result<s
             Ok(None) => {
                 let elapsed = start.elapsed();
                 if elapsed > timeout {
-                    tracing::error!("ffmpeg timeout after {:?} (limit: {:?})", elapsed, timeout);
+                    // Capture stderr for context before bailing
+                    let stderr_bytes = stderr_data.lock().unwrap().clone();
+                    let stderr_preview = if !stderr_bytes.is_empty() {
+                        String::from_utf8_lossy(&stderr_bytes)
+                            .lines()
+                            .filter(|l| l.contains("error") || l.contains("Error") || l.contains("ERROR") || l.contains("Failed"))
+                            .take(3)
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    } else {
+                        String::new()
+                    };
+                    tracing::error!("ffmpeg timeout after {:?} (limit: {:?}, command: {}). Stderr preview: {}", 
+                        elapsed, timeout, cmd_display, if stderr_preview.is_empty() { "none" } else { &stderr_preview });
                     let _ = child.kill();
                     let _ = child.wait();
                     // Wait for readers to finish
                     let _ = stdout_handle.join();
                     let _ = stderr_handle.join();
-                    anyhow::bail!("ffmpeg timeout after {:?} (command: {})", timeout, cmd_display);
+                    let error_msg = if stderr_preview.is_empty() {
+                        format!("ffmpeg timeout after {:?} (command: {})", timeout, cmd_display)
+                    } else {
+                        format!("ffmpeg timeout after {:?} (command: {}). Error details: {}", 
+                            timeout, cmd_display, stderr_preview)
+                    };
+                    anyhow::bail!("{}", error_msg);
                 }
                 // Log progress every 5 seconds with more detail
                 let now = Instant::now();
@@ -590,11 +609,30 @@ pub fn run_ffmpeg_with_timeout(args: Vec<String>, timeout: Duration) -> Result<s
             }
             Err(e) => {
                 let elapsed = start.elapsed();
-                tracing::error!("ffmpeg process error after {:?}: {}", elapsed, e);
+                // Capture stderr for context before bailing
+                let stderr_bytes = stderr_data.lock().unwrap().clone();
+                let stderr_preview = if !stderr_bytes.is_empty() {
+                    String::from_utf8_lossy(&stderr_bytes)
+                        .lines()
+                        .filter(|l| l.contains("error") || l.contains("Error") || l.contains("ERROR") || l.contains("Failed"))
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                } else {
+                    String::new()
+                };
+                tracing::error!("ffmpeg process error after {:?} (command: {}): {}. Stderr preview: {}", 
+                    elapsed, cmd_display, e, if stderr_preview.is_empty() { "none" } else { &stderr_preview });
                 // Wait for readers to finish
                 let _ = stdout_handle.join();
                 let _ = stderr_handle.join();
-                anyhow::bail!("ffmpeg process error after {:?} (command: {}): {}", elapsed, cmd_display, e);
+                let error_msg = if stderr_preview.is_empty() {
+                    format!("ffmpeg process error after {:?} (command: {}): {}", elapsed, cmd_display, e)
+                } else {
+                    format!("ffmpeg process error after {:?} (command: {}): {}. Error details: {}", 
+                        elapsed, cmd_display, e, stderr_preview)
+                };
+                anyhow::bail!("{}", error_msg);
             }
         }
     }

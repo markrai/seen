@@ -946,12 +946,18 @@ pub async fn start_face_workers(
                     let processor_clone = processor_c.clone();
                     let asset_id_clone = job.asset_id;
                     let image_path_clone = job.image_path.clone();
-                    tokio::task::spawn_blocking(move || {
+                    match tokio::task::spawn_blocking(move || {
                         let processor_guard = processor_clone.lock();
                         processor_guard.process_image(asset_id_clone, &image_path_clone)
                     })
                     .await
-                    .expect("Face processing task panicked")
+                    {
+                        Ok(result) => result,
+                        Err(e) => {
+                            error!("Face processing task panicked for asset {}: {}", job.asset_id, e);
+                            continue; // Skip this job and continue processing others
+                        }
+                    }
                 };
                 match embeddings {
                     Ok(embeddings) => {
@@ -960,7 +966,7 @@ pub async fn start_face_workers(
                         }
                         let dbp = db_path_c.clone();
                         let embeds = embeddings.clone();
-                        let stored_ids = tokio::task::spawn_blocking(move || {
+                        let stored_ids = match tokio::task::spawn_blocking(move || {
                             let conn = rusqlite::Connection::open(dbp).ok()?;
                             let mut stored = Vec::new();
                             for embed in embeds {
@@ -974,14 +980,21 @@ pub async fn start_face_workers(
                                     embed.bbox.confidence as f64,
                                 ) {
                                     Ok(face_id) => stored.push((face_id, embed)),
-                                    Err(e) => eprintln!("Failed to store face embedding: {}", e),
+                                    Err(e) => {
+                                        error!("Failed to store face embedding for asset {}: {}", embed.asset_id, e);
+                                    },
                                 }
                             }
                             Some(stored)
                         })
                         .await
-                        .ok()
-                        .flatten();
+                        {
+                            Ok(result) => result,
+                            Err(e) => {
+                                error!("Face embedding storage task panicked for asset {}: {}", job.asset_id, e);
+                                None
+                            }
+                        };
                         if let Some(stored) = stored_ids {
                             // Update in-memory search index
                             {
@@ -1073,16 +1086,26 @@ pub async fn start_face_workers(
                                         Some((persons_created, faces_assigned))
                                     }).await;
                                     
-                                    if let Ok(Some((persons, faces))) = result {
-                                        info!("Clustering persisted: {} persons, {} faces", persons, faces);
-                                    } else {
-                                        error!("Clustering task failed or returned no result for asset {}", job.asset_id);
+                                    match result {
+                                        Ok(Some((persons, faces))) => {
+                                            info!("Clustering persisted: {} persons, {} faces", persons, faces);
+                                        }
+                                        Ok(None) => {
+                                            error!("Clustering task returned no result for asset {} (database connection failed)", job.asset_id);
+                                        }
+                                        Err(e) => {
+                                            error!("Clustering task panicked for asset {}: {}", job.asset_id, e);
+                                        }
                                     }
                                 });
                             }
                         }
                     }
-                    Err(e) => error!("Failed to process faces for asset {}: {}", job.asset_id, e),
+                    Err(e) => {
+                        error!("Failed to process faces for asset {}: {}", job.asset_id, e);
+                        // Continue processing other jobs - don't crash the worker
+                        // The error is logged for visibility in CI logs
+                    },
                 }
             }
         });
