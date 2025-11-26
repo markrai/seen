@@ -5,6 +5,7 @@ use tokio::time::{sleep, Duration};
 use axum::serve;
 use tokio::net::{TcpListener, TcpStream};
 use parking_lot::Mutex;
+#[cfg(feature = "facial-recognition")]
 use nazr_backend_sqlite::pipeline::face::{FaceProcessor, FaceIndex};
 
 async fn wait_for_port(port: u16) {
@@ -80,6 +81,7 @@ async fn smoke_end_to_end() {
     let (meta_tx, meta_rx) = tokio::sync::mpsc::channel::<nazr_backend_sqlite::pipeline::metadata::MetaJob>(4_096);
     let (db_tx, db_rx) = tokio::sync::mpsc::channel::<nazr_backend_sqlite::db::writer::DbWriteItem>(65_536);
     let (thumb_tx, thumb_rx) = tokio::sync::mpsc::channel::<nazr_backend_sqlite::pipeline::thumb::ThumbJob>(16_384);
+    #[cfg(feature = "facial-recognition")]
     let (face_tx, _face_rx) = tokio::sync::mpsc::channel(10);
 
     eprintln!("[TEST] Starting pipeline workers");
@@ -124,12 +126,20 @@ async fn smoke_end_to_end() {
     eprintln!("[TEST] All pipeline workers started");
 
     let paths = nazr_backend_sqlite::AppPaths { root: root.clone(), root_host: None, data: data.clone(), db_path: db_path.clone(), derived: derived_dir.clone() };
+    #[cfg(feature = "facial-recognition")]
     let queues = nazr_backend_sqlite::pipeline::Queues { discover_tx: discover_tx.clone(), hash_tx: hash_tx.clone(), meta_tx: meta_tx.clone(), db_tx: db_tx.clone(), thumb_tx: thumb_tx.clone(), face_tx: face_tx.clone() };
+    #[cfg(not(feature = "facial-recognition"))]
+    let queues = nazr_backend_sqlite::pipeline::Queues { discover_tx: discover_tx.clone(), hash_tx: hash_tx.clone(), meta_tx: meta_tx.clone(), db_tx: db_tx.clone(), thumb_tx: thumb_tx.clone() };
     eprintln!("[TEST] Creating app state and router");
-    let models_dir = data_dir.join("models");
-    let processor = Arc::new(Mutex::new(FaceProcessor::new(models_dir)));
-    let index = Arc::new(Mutex::new(FaceIndex::new()));
-    let state = Arc::new(nazr_backend_sqlite::AppState::new(paths, conn, queues, gauges.clone(), stats.clone(), processor, index));
+    #[cfg(feature = "facial-recognition")]
+    let state = {
+        let models_dir = data_dir.join("models");
+        let processor = Arc::new(Mutex::new(FaceProcessor::new(models_dir)));
+        let index = Arc::new(Mutex::new(FaceIndex::new()));
+        Arc::new(nazr_backend_sqlite::AppState::new(paths, conn, queues, gauges.clone(), stats.clone(), processor, index))
+    };
+    #[cfg(not(feature = "facial-recognition"))]
+    let state = Arc::new(nazr_backend_sqlite::AppState::new(paths, conn, queues, gauges.clone(), stats.clone()));
     let app = nazr_backend_sqlite::api::routes::router(state.clone());
     let addr = SocketAddr::from(([127,0,0,1], 18080));
     eprintln!("[TEST] Spawning server on {}", addr);
@@ -229,6 +239,7 @@ async fn smoke_end_to_end() {
     drop(meta_tx);
     drop(db_tx);
     drop(thumb_tx);
+    #[cfg(feature = "facial-recognition")]
     drop(face_tx);
     
     // Give workers a moment to shut down before aborting server
