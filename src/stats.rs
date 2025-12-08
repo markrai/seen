@@ -193,6 +193,7 @@ impl Stats {
     }
     
     // Store the final processing rate when scan completes
+    // Note: This stores values but does NOT clear the timer - call stop_processing() when truly idle
     pub fn finish_processing(&self) {
         if let Some((files, rate, elapsed)) = self.processing_stats() {
             if files > 0 && rate > 0.0 {
@@ -203,6 +204,15 @@ impl Stats {
                 *self.last_completed_processing_elapsed.lock() = Some(elapsed);
             }
         }
+    }
+
+    // Clear processing timer when all queues are empty and processing is truly done
+    // This prevents elapsed time from continuing to increase after processing stops
+    pub fn stop_processing(&self) {
+        // Store final values before clearing timer
+        self.finish_processing();
+        // Now clear the timer
+        *self.last_processing_start.lock() = None;
     }
     
     pub fn last_completed_processing_rate(&self) -> Option<f64> {

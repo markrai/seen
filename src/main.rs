@@ -22,7 +22,8 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&db_dir)?;
     std::fs::create_dir_all(&derived_dir)?;
     let db_path = db_dir.join("nazr.db");
-    let conn = db::open_or_create(&db_path)?;
+    // Create connection pool with 10 connections (good for SQLite WAL mode)
+    let pool = db::create_pool(&db_path, 10)?;
     // Initialize libvips (warnings are suppressed via environment variables set above)
     #[cfg(not(target_env = "msvc"))]
     let _app = libvips::VipsApp::new("nazr", false)?;
@@ -101,9 +102,9 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(feature = "facial-recognition"))]
     let queues = pipeline::Queues { discover_tx: discover_tx.clone(), hash_tx: hash_tx.clone(), meta_tx: meta_tx.clone(), db_tx: db_tx.clone(), thumb_tx: thumb_tx.clone() };
     #[cfg(feature = "facial-recognition")]
-    let state = Arc::new(nazr_backend_sqlite::AppState::new(paths, conn, queues, gauges.clone(), stats.clone(), face_processor_arc.clone(), face_index.clone()));
+    let state = Arc::new(nazr_backend_sqlite::AppState::new(paths, pool, queues, gauges.clone(), stats.clone(), face_processor_arc.clone(), face_index.clone()));
     #[cfg(not(feature = "facial-recognition"))]
-    let state = Arc::new(nazr_backend_sqlite::AppState::new(paths, conn, queues, gauges.clone(), stats.clone()));
+    let state = Arc::new(nazr_backend_sqlite::AppState::new(paths, pool, queues, gauges.clone(), stats.clone()));
     
     // Note: File watchers are now started dynamically when paths are added or scans are started
     // The old static watcher has been removed in favor of per-path watchers

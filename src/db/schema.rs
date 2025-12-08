@@ -44,6 +44,9 @@ CREATE INDEX IF NOT EXISTS idx_assets_path ON assets(path);
 CREATE INDEX IF NOT EXISTS idx_assets_taken ON assets(taken_at);
 CREATE INDEX IF NOT EXISTS idx_assets_cam ON assets(camera_make, camera_model);
 CREATE INDEX IF NOT EXISTS idx_assets_hash ON assets(sha256);
+CREATE INDEX IF NOT EXISTS idx_assets_mime ON assets(mime);
+CREATE INDEX IF NOT EXISTS idx_assets_ext ON assets(ext);
+CREATE INDEX IF NOT EXISTS idx_assets_dirname ON assets(dirname);
 
 CREATE TABLE IF NOT EXISTS persons (
   id INTEGER PRIMARY KEY,

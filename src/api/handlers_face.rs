@@ -10,16 +10,15 @@ use rusqlite::OptionalExtension;
 
 // Face detection handlers
 pub async fn detect_faces(State(state): State<Arc<AppState>>) -> impl axum::response::IntoResponse {
-    let db_path = state.db_path.clone();
     let face_tx = state.queues.face_tx.clone();
     let gauges = state.gauges.clone();
 
     // Set enabled state in database
-    let dbp = state.db_path.clone();
+    let pool = state.pool.clone();
     let enabled_set = tokio::task::spawn_blocking({
-        let dbp = dbp.clone();
+        let pool = pool.clone();
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::writer::set_face_detection_enabled(&conn, true).ok()
         }
     }).await.ok().flatten();
@@ -31,9 +30,9 @@ pub async fn detect_faces(State(state): State<Arc<AppState>>) -> impl axum::resp
     tokio::spawn(async move {
         // Get image assets based on excluded extensions setting
         let image_assets = tokio::task::spawn_blocking({
-            let dbp = db_path.clone();
+            let pool = pool.clone();
             move || {
-                let conn = rusqlite::Connection::open(dbp).ok()?;
+                let conn = pool.get().ok()?;
 
                 // All image extensions that can be processed
                 let all_image_exts = vec![
@@ -124,11 +123,11 @@ pub async fn face_detection_status(State(state): State<Arc<AppState>>) -> impl a
 
 pub async fn stop_face_detection(State(state): State<Arc<AppState>>) -> impl axum::response::IntoResponse {
     // Set enabled state to false in database
-    let dbp = state.db_path.clone();
+    let pool = state.pool.clone();
     let disabled_set = tokio::task::spawn_blocking({
-        let dbp = dbp.clone();
+        let pool = pool.clone();
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::writer::set_face_detection_enabled(&conn, false).ok()
         }
     }).await.ok().flatten();
@@ -154,9 +153,9 @@ pub async fn face_progress(State(state): State<Arc<AppState>>) -> impl axum::res
 
     // Initialize from database on first call if not set
     if !enabled {
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let db_enabled = tokio::task::spawn_blocking(move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::writer::get_face_detection_enabled(&conn).ok()
         }).await.ok().flatten().unwrap_or(false);
 
@@ -186,9 +185,9 @@ pub async fn face_progress(State(state): State<Arc<AppState>>) -> impl axum::res
     };
 
     // DB counts
-    let dbp = state.db_path.clone();
+    let pool = state.pool.clone();
     let (faces_total, persons_total, assets_with_faces) = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(dbp).ok()?;
+        let conn = pool.get().ok()?;
         let faces_total: i64 = conn.query_row("SELECT COUNT(*) FROM face_embeddings", [], |r| r.get(0)).ok()?;
         let persons_total: i64 = conn.query_row("SELECT COUNT(*) FROM persons", [], |r| r.get(0)).ok()?;
         let assets_with_faces: i64 = conn.query_row("SELECT COUNT(DISTINCT asset_id) FROM face_embeddings", [], |r| r.get(0)).ok()?;
@@ -250,9 +249,9 @@ pub struct FaceListItem {
 pub async fn list_unassigned_faces(State(state): State<Arc<AppState>>, Query(q): Query<PageQ>) -> impl axum::response::IntoResponse {
     let offset = q.offset.unwrap_or(0);
     let limit = q.limit.unwrap_or(60).clamp(1, 500);
-    let dbp = state.db_path.clone();
+    let pool = state.pool.clone();
     let rows = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(dbp).ok()?;
+        let conn = pool.get().ok()?;
         let rows = db::query::get_unassigned_faces(&conn, offset, limit).ok()?;
         Some(rows)
     }).await.ok().flatten().unwrap_or_default();
@@ -284,10 +283,10 @@ pub async fn assign_face_to_person(
         FaceNotFound,
     }
 
-    let dbp = state.db_path.clone();
+    let pool = state.pool.clone();
     let target_person = req.person_id;
     let result = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(dbp).ok()?;
+        let conn = pool.get().ok()?;
         let previous_person_id: Option<i64> = match conn
             .query_row(
                 "SELECT person_id FROM face_embeddings WHERE id = ?1",
@@ -366,9 +365,9 @@ pub async fn assign_face_to_person(
 #[cfg(feature = "facial-recognition")]
 pub async fn face_thumb(State(state): State<Arc<AppState>>, Path(face_id): Path<i64>, Query(q): Query<std::collections::HashMap<String, String>>) -> impl axum::response::IntoResponse {
     let size: u32 = q.get("size").and_then(|s| s.parse().ok()).unwrap_or(160).clamp(32, 1024);
-    let dbp = state.db_path.clone();
+    let pool = state.pool.clone();
     let res: Option<(Vec<u8>,)> = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(dbp).ok()?;
+        let conn = pool.get().ok()?;
         let row = db::query::get_face_row(&conn, face_id).ok().flatten()?;
         let (_id, asset_id, bbox_json, _conf) = row;
         let (path, _w_opt, _h_opt) = db::query::get_asset_path_size(&conn, asset_id).ok().flatten()?;
@@ -441,9 +440,9 @@ pub async fn face_thumb(State(state): State<Arc<AppState>>, Path(face_id): Path<
 // Person handlers
 pub async fn list_persons(State(state): State<Arc<AppState>>) -> impl axum::response::IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             let persons = db::query::list_persons(&conn).ok()?;
             Some(persons.into_iter().map(|(id, name, created_at)| {
                 serde_json::json!({
@@ -463,9 +462,9 @@ pub async fn list_persons(State(state): State<Arc<AppState>>) -> impl axum::resp
 
 pub async fn get_person(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl axum::response::IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::query::get_person(&conn, id).ok()?
         }
     }).await.ok().flatten();
@@ -484,9 +483,9 @@ pub async fn get_person(State(state): State<Arc<AppState>>, Path(id): Path<i64>)
 
 pub async fn get_person_assets(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl axum::response::IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::query::get_person_assets(&conn, id).ok()
         }
     }).await.ok().flatten();
@@ -500,9 +499,9 @@ pub async fn get_person_assets(State(state): State<Arc<AppState>>, Path(id): Pat
 #[cfg(feature = "facial-recognition")]
 pub async fn get_person_face(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl axum::response::IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::query::get_person_representative_face(&conn, id).ok()
         }
     }).await.ok().flatten();
@@ -525,9 +524,9 @@ pub struct UpdatePersonReq {
 /// clustering strategy.
 #[cfg(feature = "facial-recognition")]
 pub async fn recluster_faces(State(state): State<Arc<AppState>>) -> impl axum::response::IntoResponse {
-  let dbp = state.db_path.clone();
+  let pool = state.pool.clone();
   let result = tokio::task::spawn_blocking(move || {
-    let conn = rusqlite::Connection::open(dbp).ok()?;
+    let conn = pool.get().ok()?;
 
     // 1) Clear existing person assignments and persons
     crate::db::writer::clear_persons_and_face_assignments(&conn).ok()?;
@@ -613,9 +612,9 @@ pub async fn recluster_faces(State(state): State<Arc<AppState>>) -> impl axum::r
 #[cfg(feature = "facial-recognition")]
 pub async fn refresh_person_profile(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl axum::response::IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             let exists = db::query::get_person(&conn, id).ok()?.is_some();
             if !exists {
                 return Some(Err("Person not found".to_string()));
@@ -659,10 +658,10 @@ pub async fn refresh_person_profile(State(state): State<Arc<AppState>>, Path(id)
 
 pub async fn update_person(State(state): State<Arc<AppState>>, Path(id): Path<i64>, Json(req): Json<UpdatePersonReq>) -> impl axum::response::IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let name = req.name;
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::writer::update_person_name(&conn, id, name).ok()
         }
     }).await.ok().flatten();
@@ -676,9 +675,9 @@ pub async fn update_person(State(state): State<Arc<AppState>>, Path(id): Path<i6
 
 pub async fn delete_person(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl axum::response::IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::writer::delete_person(&conn, id).ok()
         }
     }).await.ok().flatten();
@@ -705,11 +704,11 @@ pub async fn merge_persons(State(state): State<Arc<AppState>>, Json(req): Json<M
     }
 
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let source_id = req.source_person_id;
         let target_id = req.target_person_id;
         move || -> Option<Result<(db::writer::MergePersonsResult, Option<db::writer::PersonProfileSummary>), String>> {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
 
             // Validate that both persons exist
             let source_exists = db::query::get_person(&conn, source_id).ok()?.is_some();
@@ -787,10 +786,10 @@ pub async fn smart_merge_persons(
         .unwrap_or(0.50);
 
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let threshold = merge_threshold;
         move || -> Option<Result<(i64, i64), String>> {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
 
             // Check that there are at least 2 persons
             let person_count: i64 = conn.query_row("SELECT COUNT(*) FROM persons", [], |r| r.get(0)).ok()?;
@@ -810,9 +809,9 @@ pub async fn smart_merge_persons(
         Some(Ok((persons_merged, faces_merged))) => {
             // Get remaining person count
             let remaining_count = tokio::task::spawn_blocking({
-                let dbp = state.db_path.clone();
+                let pool = state.pool.clone();
                 move || {
-                    let conn = rusqlite::Connection::open(dbp).ok()?;
+                    let conn = pool.get().ok()?;
                     conn.query_row("SELECT COUNT(*) FROM persons", [], |r| r.get::<_, i64>(0)).ok()
                 }
             }).await.ok().flatten().unwrap_or(0);
@@ -842,9 +841,9 @@ pub async fn smart_merge_persons(
 
 pub async fn get_asset_faces(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl axum::response::IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::query::get_asset_faces(&conn, id).ok()
         }
     }).await.ok().flatten();
@@ -898,11 +897,11 @@ pub async fn trigger_clustering(
         .unwrap_or(2);
 
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let min_clust = min_cluster_size;
         let min_samp = min_samples;
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             // Get all face embeddings that don't have a person_id assigned
             let embeddings = db::query::get_all_face_embeddings(&conn).ok()?;
             let unassigned: Vec<_> = embeddings.iter()
@@ -1046,9 +1045,9 @@ pub async fn clear_facial_data(State(state): State<Arc<AppState>>) -> impl axum:
     }
 
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = rusqlite::Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::writer::clear_all_facial_data(&conn).ok()
         }
     }).await.ok().flatten();
@@ -1095,9 +1094,9 @@ pub async fn get_face_settings(State(state): State<Arc<AppState>>) -> impl IntoR
 
     // Read excluded extensions from database
     let excluded_extensions = tokio::task::spawn_blocking({
-        let db_path = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = rusqlite::Connection::open(db_path).ok()?;
+            let conn = pool.get().ok()?;
             let value = db::writer::get_face_setting(&conn, "excluded_extensions").ok()??;
             // Parse comma-separated string to Vec<String>
             if value.is_empty() {
@@ -1137,9 +1136,9 @@ pub async fn update_face_settings(State(state): State<Arc<AppState>>, Json(paylo
 
     // Save excluded extensions to database
     if let Some(excluded) = payload.excluded_extensions {
-        let db_path = state.db_path.clone();
+        let pool = state.pool.clone();
         let _ = tokio::task::spawn_blocking(move || {
-            if let Ok(conn) = rusqlite::Connection::open(db_path) {
+            if let Ok(conn) = pool.get() {
                 let value = excluded.join(",");
                 let _ = db::writer::set_face_setting(&conn, "excluded_extensions", &value);
             }

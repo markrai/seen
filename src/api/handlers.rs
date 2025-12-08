@@ -71,49 +71,41 @@ pub async fn health() -> impl IntoResponse {
 
 pub async fn stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let depths = state.gauges.depths();
-    let db_count = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
-        move || { let conn = Connection::open(dbp).ok()?; db::query::count_assets(&conn).ok() }
-    }).await.ok().flatten().unwrap_or(0);
+
+    // Use cached counts with 5-second TTL to reduce database load
+    const CACHE_TTL_SECS: u64 = 5;
+    let (db_count, total_photos, total_videos) = if state.stats_cache.is_stale(CACHE_TTL_SECS) {
+        // Cache is stale, refresh from database
+        let counts = tokio::task::spawn_blocking({
+            let pool = state.pool.clone();
+            move || {
+                let conn = pool.get().ok()?;
+                let total: i64 = conn.query_row("SELECT COUNT(*) FROM assets", [], |r| r.get(0)).ok()?;
+                let photos: i64 = conn.query_row("SELECT COUNT(*) FROM assets WHERE mime LIKE 'image/%'", [], |r| r.get(0)).ok()?;
+                let videos: i64 = conn.query_row("SELECT COUNT(*) FROM assets WHERE mime LIKE 'video/%'", [], |r| r.get(0)).ok()?;
+                Some((total, photos, videos))
+            }
+        }).await.ok().flatten().unwrap_or((0, 0, 0));
+
+        // Update cache
+        state.stats_cache.update(counts.0, counts.1, counts.2);
+        counts
+    } else {
+        // Use cached values
+        state.stats_cache.get()
+    };
+
     let scan_stats = state.stats.scan_stats();
 
-    // Get photo/video counts for current scan if active
-    // Query database to get breakdown of files processed in current scan
+    // Get photo/video counts for current scan if active (uses cached totals)
     let scan_breakdown = if scan_stats.is_some() {
-        tokio::task::spawn_blocking({
-            let dbp = state.db_path.clone();
-            let files_processed = scan_stats.map(|(f, _, _)| f).unwrap_or(0);
-            move || {
-                let conn = Connection::open(dbp).ok()?;
-                // Get total counts
-                let total_photos: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM assets WHERE mime LIKE 'image/%'",
-                    [],
-                    |r| r.get(0)
-                ).ok()?;
-                let total_videos: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM assets WHERE mime LIKE 'video/%'",
-                    [],
-                    |r| r.get(0)
-                ).ok()?;
-                let total_files: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM assets",
-                    [],
-                    |r| r.get(0)
-                ).ok()?;
-
-                // Calculate approximate photo/video counts for current scan
-                // Based on the ratio of photos/videos in the database
-                // This is an approximation but works well for display purposes
-                let photo_ratio = if total_files > 0 { total_photos as f64 / total_files as f64 } else { 0.0 };
-                let video_ratio = if total_files > 0 { total_videos as f64 / total_files as f64 } else { 0.0 };
-
-                let photos_in_scan = (files_processed as f64 * photo_ratio) as i64;
-                let videos_in_scan = (files_processed as f64 * video_ratio) as i64;
-
-                Some((photos_in_scan, videos_in_scan))
-            }
-        }).await.ok().flatten()
+        let files_processed = scan_stats.map(|(f, _, _)| f).unwrap_or(0);
+        // Use cached totals instead of querying database again
+        let photo_ratio = if db_count > 0 { total_photos as f64 / db_count as f64 } else { 0.0 };
+        let video_ratio = if db_count > 0 { total_videos as f64 / db_count as f64 } else { 0.0 };
+        let photos_in_scan = (files_processed as f64 * photo_ratio) as i64;
+        let videos_in_scan = (files_processed as f64 * video_ratio) as i64;
+        Some((photos_in_scan, videos_in_scan))
     } else {
         None
     };
@@ -123,6 +115,13 @@ pub async fn stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         .any(|flag| flag.load(std::sync::atomic::Ordering::Relaxed));
     let has_queued_items = depths.discover > 0 || depths.hash > 0 || depths.metadata > 0 || depths.db_write > 0 || depths.thumb > 0;
     let is_active = is_scanning || has_queued_items;
+
+    // Detect transition from active to inactive (processing just finished)
+    let was_active = state.stats_cache.was_processing_active.swap(is_active, std::sync::atomic::Ordering::Relaxed);
+    if was_active && !is_active {
+        // Processing just finished - store final rates and clear timer
+        state.stats.stop_processing();
+    }
 
     // Use last completed scan rate when idle to prevent decay
     let files_per_sec = if is_active {
@@ -197,14 +196,20 @@ pub async fn stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         }),
         "db": {"assets": db_count}
     });
-    (StatusCode::OK, Json(body))
+    // Add Cache-Control header to allow short-term caching
+    let mut response = Json(body).into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("private, max-age=5")
+    );
+    response
 }
 
 pub async fn file_types(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
 
             // Get file type distribution with detailed breakdown for images and videos
             // Images: break down by specific MIME types (jpeg, png, webp, etc.)
@@ -412,9 +417,9 @@ pub async fn clear_all_data(State(state): State<Arc<AppState>>) -> impl IntoResp
     }
 
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || -> Result<(usize, usize, usize), anyhow::Error> {
-            let conn = rusqlite::Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
             db::writer::clear_all_data(&conn).map_err(|e| {
                 tracing::error!("Failed to clear all data: {}", e);
                 anyhow::anyhow!("Database error: {}", e)
@@ -426,6 +431,7 @@ pub async fn clear_all_data(State(state): State<Arc<AppState>>) -> impl IntoResp
         Ok(Ok((assets_deleted, faces_deleted, persons_deleted))) => {
             // Also reset performance statistics when clearing all data
             state.stats.reset_stats();
+            state.stats_cache.was_processing_active.store(false, std::sync::atomic::Ordering::Relaxed);
             (StatusCode::OK, Json(serde_json::json!({
                 "success": true,
                 "assets_deleted": assets_deleted,
@@ -463,6 +469,8 @@ pub async fn reset_stats(State(state): State<Arc<AppState>>) -> impl IntoRespons
     }
 
     state.stats.reset_stats();
+    // Also reset the processing activity tracking flag
+    state.stats_cache.was_processing_active.store(false, std::sync::atomic::Ordering::Relaxed);
 
     (StatusCode::OK, Json(serde_json::json!({
         "success": true,
@@ -487,9 +495,9 @@ pub async fn assets(State(state): State<Arc<AppState>>, Query(q): Query<ListQuer
     let order = q.order.unwrap_or_else(|| "desc".to_string());
     #[cfg(feature = "facial-recognition")]
     let person_id = q.person_id;
-    let dbp = state.db_path.clone();
+    let pool = state.pool.clone();
     let res = tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(dbp).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
         #[cfg(feature = "facial-recognition")]
         {
             if let Some(pid) = person_id {
@@ -512,9 +520,9 @@ pub struct SearchQuery { q: String, from: Option<i64>, to: Option<i64>, camera_m
 pub async fn assets_search(State(state): State<Arc<AppState>>, Query(qs): Query<SearchQuery>) -> impl IntoResponse {
     let offset = qs.offset.unwrap_or(0);
     let limit = qs.limit.unwrap_or(200);
-    let dbp = state.db_path.clone();
+    let pool = state.pool.clone();
     let res = tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(dbp).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
         let search_params = crate::db::query::SearchParams {
             q: &qs.q,
             from: qs.from,
@@ -543,9 +551,9 @@ pub async fn preview_1600(State(state): State<Arc<AppState>>, Path(id): Path<i64
 }
 
 pub async fn get_asset(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
-    let dbp = state.db_path.clone();
+    let pool = state.pool.clone();
     let res = tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(dbp).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
         crate::db::query::get_asset_by_id(&conn, id).map_err(|e| anyhow::anyhow!(e.to_string()))
     }).await;
     match res {
@@ -557,8 +565,8 @@ pub async fn get_asset(State(state): State<Arc<AppState>>, Path(id): Path<i64>) 
 
 async fn serve_derived(state: Arc<AppState>, id: i64, derived_dir: std::path::PathBuf, _flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>, size: i32) -> impl IntoResponse {
     let info = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
-        move || { let conn = Connection::open(dbp).ok(); conn.and_then(|c| crate::db::query::get_thumb_info(&c, id).ok()) }
+        let pool = state.pool.clone();
+        move || { let conn = pool.get().ok(); conn.and_then(|c| crate::db::query::get_thumb_info(&c, id).ok()) }
     }).await.ok().flatten();
     if let Some((Some(sha_hex), _mime)) = info {
         if sha_hex.len() >= 2 {
@@ -717,9 +725,9 @@ pub async fn get_scan_paths(State(state): State<Arc<AppState>>) -> impl IntoResp
     let default_root = state.paths.root.to_string_lossy().to_string();
     let default_root_host = state.paths.root_host.clone();
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::query::get_scan_paths(&conn).ok()
         }
     }).await.ok().flatten();
@@ -755,10 +763,10 @@ pub async fn add_scan_path(State(state): State<Arc<AppState>>, Json(req): Json<A
 
     let decoded_path = req.path.clone();
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let path = decoded_path.clone();
         move || {
-            let conn = Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             db::writer::add_scan_path(&conn, &path).ok()
         }
     }).await.ok().flatten();
@@ -782,12 +790,12 @@ pub async fn add_scan_path(State(state): State<Arc<AppState>>, Json(req): Json<A
                     let root = std::path::PathBuf::from(&decoded_path);
                     let dtx = state.queues.discover_tx.clone();
                     let g = state.gauges.clone();
-                    let dbp = state.db_path.clone();
+                    let db_path = state.db_path.clone();
                     let stats = state.stats.clone();
                     let paused = path_watcher_paused.clone();
 
                     let handle = tokio::spawn(async move {
-                        let _ = crate::pipeline::discover::watch(root, dtx, Some(dbp), g, Some(stats), Some(paused)).await;
+                        let _ = crate::pipeline::discover::watch(root, dtx, Some(db_path), g, Some(stats), Some(paused)).await;
                     });
                     watchers.insert(decoded_path.clone(), handle);
                 }
@@ -899,10 +907,10 @@ pub async fn remove_scan_path(State(state): State<Arc<AppState>>, Query(params):
     state.scan_running.store(any_active, std::sync::atomic::Ordering::SeqCst);
 
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let path_to_remove_db = path_to_remove.clone();
         move || -> Result<(bool, usize, usize), anyhow::Error> {
-            let conn = Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
 
             // First delete all assets from this path
             let (assets_deleted, faces_deleted) = db::writer::delete_assets_by_path_prefix(&conn, &path_to_remove_db)?;
@@ -957,10 +965,10 @@ pub async fn scan_path(State(state): State<Arc<AppState>>, Json(req): Json<PathA
         true
     } else {
         tokio::task::spawn_blocking({
-            let dbp = state.db_path.clone();
+            let pool = state.pool.clone();
             let path_check = decoded_path.clone();
             move || {
-                let conn = Connection::open(dbp).ok()?;
+                let conn = pool.get().ok()?;
                 let mut stmt = conn.prepare("SELECT 1 FROM scan_paths WHERE path = ?1").ok()?;
                 let exists = stmt.exists(params![path_check]).ok()?;
                 Some(exists)
@@ -1012,12 +1020,12 @@ pub async fn scan_path(State(state): State<Arc<AppState>>, Json(req): Json<PathA
             let root = std::path::PathBuf::from(&decoded_path);
             let dtx = state.queues.discover_tx.clone();
             let g = state.gauges.clone();
-            let dbp = state.db_path.clone();
+            let db_path = state.db_path.clone();
             let stats = state.stats.clone();
             let paused = path_watcher_paused.clone();
 
             let handle = tokio::spawn(async move {
-                let _ = crate::pipeline::discover::watch(root, dtx, Some(dbp), g, Some(stats), Some(paused)).await;
+                let _ = crate::pipeline::discover::watch(root, dtx, Some(db_path), g, Some(stats), Some(paused)).await;
             });
             watchers.insert(decoded_path.clone(), handle);
         }
@@ -1224,9 +1232,9 @@ pub async fn diag_ffmpeg() -> impl IntoResponse {
 pub async fn stream_video(State(state): State<Arc<AppState>>, Path(id): Path<i64>, headers: HeaderMap) -> impl IntoResponse {
     // Get asset path, MIME type, and codec from database
     let (file_path, mime_str, video_codec) = match tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             let asset = crate::db::query::get_asset_by_id(&conn, id).ok()??;
             // Use MIME type from database (more accurate than guessing from path)
             let mime_str = if !asset.mime.is_empty() {
@@ -1282,9 +1290,9 @@ pub async fn stream_video(State(state): State<Arc<AppState>>, Path(id): Path<i64
     } else {
         // Need transcoding - get SHA256 and check for cached transcoded version
         let sha256 = match tokio::task::spawn_blocking({
-            let dbp = state.db_path.clone();
+            let pool = state.pool.clone();
             move || {
-                let conn = Connection::open(dbp).ok()?;
+                let conn = pool.get().ok()?;
                 crate::db::query::get_asset_sha256(&conn, id).ok()?
             }
         }).await.ok().flatten() {
@@ -1789,9 +1797,9 @@ fn parse_range(range_str: &str, file_size: u64) -> Option<(u64, u64)> {
 
 pub async fn download_asset(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
     let path = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             crate::db::query::get_asset_path(&conn, id).ok()?
         }
     }).await.ok().flatten();
@@ -1997,10 +2005,10 @@ fn perform_permanent_delete(conn: &Connection, derived_dir: &StdPath, paths: &Ap
 pub async fn delete_asset(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
     let derived_dir = state.paths.data.join("derived");
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let derived_dir = derived_dir.clone();
         move || -> Result<bool> {
-            let conn = Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
             let asset_info = fetch_asset_file_info(&conn, id)?;
             let deleted = crate::db::query::delete_asset_by_id(&conn, id)?;
             if deleted {
@@ -2042,11 +2050,11 @@ pub async fn delete_asset_permanent(State(state): State<Arc<AppState>>, Path(id)
     let derived_dir = state.paths.data.join("derived");
     let paths = state.paths.clone();
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let derived_dir = derived_dir.clone();
         let paths = paths.clone();
         move || -> Result<BulkPermanentDeleteResult> {
-            let conn = Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
             perform_permanent_delete(&conn, &derived_dir, &paths, id)
         }
     }).await;
@@ -2097,11 +2105,11 @@ pub async fn delete_assets_permanent(
     let paths = state.paths.clone();
     let ids = payload.ids;
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let derived_dir = derived_dir.clone();
         let paths = paths.clone();
         move || -> Result<Vec<BulkPermanentDeleteResult>> {
-            let conn = Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
             let mut outcomes = Vec::with_capacity(ids.len());
             for asset_id in ids {
                 let outcome = perform_permanent_delete(&conn, &derived_dir, &paths, asset_id)?;
@@ -2157,9 +2165,9 @@ pub async fn delete_assets_permanent(
 pub async fn extract_audio_mp3(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
     // Look up the asset path
     let path = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || {
-            let conn = Connection::open(dbp).ok()?;
+            let conn = pool.get().ok()?;
             crate::db::query::get_asset_path(&conn, id).ok()?
         }
     }).await.ok().flatten();
@@ -2464,7 +2472,7 @@ pub struct SaveOrientationRequest {
 }
 
 pub async fn save_orientation(State(state): State<Arc<AppState>>, Path(id): Path<i64>, Json(req): Json<SaveOrientationRequest>) -> impl IntoResponse {
-    let dbp = state.db_path.clone();
+    let pool = state.pool.clone();
     let paths = state.paths.clone();
     let rotation = req.rotation;
 
@@ -2480,7 +2488,7 @@ pub async fn save_orientation(State(state): State<Arc<AppState>>, Path(id): Path
     }
 
     let result = tokio::task::spawn_blocking(move || -> Result<()> {
-        let conn = Connection::open(dbp)?;
+        let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
 
         // Get asset path
         let path: String = conn.query_row(
@@ -2575,30 +2583,24 @@ pub struct AddAssetsToAlbumRequest {
 
 pub async fn list_albums(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || -> Result<Vec<AlbumResponse>> {
-            let conn = Connection::open(dbp)?;
-            let albums = db::query::list_albums(&conn)?;
-            let mut responses = Vec::new();
-            for (id, name, description, created_at, updated_at) in albums {
-                // Get asset IDs for this album
-                let mut stmt = conn.prepare("SELECT asset_id FROM album_assets WHERE album_id = ?1 ORDER BY asset_id")?;
-                let asset_rows = stmt.query_map(params![id], |row| {
-                    row.get::<_, i64>(0)
-                })?;
-                let mut asset_ids = Vec::new();
-                for row in asset_rows {
-                    asset_ids.push(row?);
-                }
-                responses.push(AlbumResponse {
-                    id,
-                    name,
-                    description,
-                    asset_ids,
-                    created_at,
-                    updated_at,
-                });
-            }
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
+            // Use optimized single-query function (no N+1)
+            let albums = db::query::list_albums_with_assets(&conn)?;
+            let responses: Vec<AlbumResponse> = albums
+                .into_iter()
+                .map(|(id, name, description, created_at, updated_at, asset_ids)| {
+                    AlbumResponse {
+                        id,
+                        name,
+                        description,
+                        asset_ids,
+                        created_at,
+                        updated_at,
+                    }
+                })
+                .collect();
             Ok(responses)
         }
     }).await;
@@ -2622,9 +2624,9 @@ pub async fn list_albums(State(state): State<Arc<AppState>>) -> impl IntoRespons
 
 pub async fn get_album(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || -> Result<Option<AlbumResponse>> {
-            let conn = Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
             if let Some((id, name, description, created_at, updated_at, asset_ids)) = db::query::get_album(&conn, id)? {
                 Ok(Some(AlbumResponse {
                     id,
@@ -2662,11 +2664,11 @@ pub async fn get_album(State(state): State<Arc<AppState>>, Path(id): Path<i64>) 
 
 pub async fn create_album(State(state): State<Arc<AppState>>, Json(req): Json<CreateAlbumRequest>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let name = req.name.clone();
         let description = req.description.clone();
         move || -> Result<AlbumResponse> {
-            let conn = Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
             let id = db::writer::create_album(&conn, &name, description.as_deref())?;
             // Get the created album
             if let Some((id, name, description, created_at, updated_at, asset_ids)) = db::query::get_album(&conn, id)? {
@@ -2703,11 +2705,11 @@ pub async fn create_album(State(state): State<Arc<AppState>>, Json(req): Json<Cr
 
 pub async fn update_album(State(state): State<Arc<AppState>>, Path(id): Path<i64>, Json(req): Json<UpdateAlbumRequest>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let name = req.name.clone();
         let description = req.description.clone();
         move || -> Result<Option<AlbumResponse>> {
-            let conn = Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
             let updated = db::writer::update_album(&conn, id, name.as_deref(), description.as_deref())?;
             if updated {
                 // Get the updated album
@@ -2751,9 +2753,9 @@ pub async fn update_album(State(state): State<Arc<AppState>>, Path(id): Path<i64
 
 pub async fn delete_album(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || -> Result<bool> {
-            let conn = Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
             db::writer::delete_album(&conn, id)
         }
     }).await;
@@ -2782,10 +2784,10 @@ pub async fn delete_album(State(state): State<Arc<AppState>>, Path(id): Path<i64
 
 pub async fn add_assets_to_album(State(state): State<Arc<AppState>>, Path(id): Path<i64>, Json(req): Json<AddAssetsToAlbumRequest>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let asset_ids = req.asset_ids.clone();
         move || -> Result<Option<AlbumResponse>> {
-            let conn = Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
             // Check if album exists
             if db::query::get_album(&conn, id)?.is_none() {
                 return Ok(None);
@@ -2829,10 +2831,10 @@ pub async fn add_assets_to_album(State(state): State<Arc<AppState>>, Path(id): P
 
 pub async fn remove_assets_from_album(State(state): State<Arc<AppState>>, Path(id): Path<i64>, Json(req): Json<AddAssetsToAlbumRequest>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         let asset_ids = req.asset_ids.clone();
         move || -> Result<Option<AlbumResponse>> {
-            let conn = Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
             // Check if album exists
             if db::query::get_album(&conn, id)?.is_none() {
                 return Ok(None);
@@ -2876,9 +2878,9 @@ pub async fn remove_assets_from_album(State(state): State<Arc<AppState>>, Path(i
 
 pub async fn get_albums_for_asset(State(state): State<Arc<AppState>>, Path(asset_id): Path<i64>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking({
-        let dbp = state.db_path.clone();
+        let pool = state.pool.clone();
         move || -> Result<Vec<i64>> {
-            let conn = Connection::open(dbp)?;
+            let conn = pool.get().map_err(|e| anyhow::anyhow!("Pool error: {}", e))?;
             db::query::get_albums_for_asset(&conn, asset_id)
         }
     }).await;

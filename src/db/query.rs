@@ -704,7 +704,7 @@ pub fn get_person_centroid(conn: &Connection, person_id: i64) -> Result<Option<V
     }
 }
 
-/// List all albums
+/// List all albums (basic info only, without asset IDs)
 pub fn list_albums(conn: &Connection) -> Result<Vec<AlbumInfo>> {
     let mut stmt = conn.prepare("SELECT id, name, description, created_at, updated_at FROM albums ORDER BY updated_at DESC")?;
     let rows = stmt.query_map([], |row| {
@@ -714,6 +714,38 @@ pub fn list_albums(conn: &Connection) -> Result<Vec<AlbumInfo>> {
             row.get(2).ok(),
             row.get(3)?,
             row.get(4)?,
+        ))
+    })?;
+    let mut albums = Vec::new();
+    for row in rows {
+        albums.push(row?);
+    }
+    Ok(albums)
+}
+
+/// List all albums with their asset IDs in a single query (no N+1)
+/// Uses GROUP_CONCAT to fetch all asset IDs for each album in one pass
+pub fn list_albums_with_assets(conn: &Connection) -> Result<Vec<AlbumDetail>> {
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.name, a.description, a.created_at, a.updated_at,
+                GROUP_CONCAT(aa.asset_id) as asset_ids
+         FROM albums a
+         LEFT JOIN album_assets aa ON a.id = aa.album_id
+         GROUP BY a.id
+         ORDER BY a.updated_at DESC"
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let asset_ids_str: Option<String> = row.get(5).ok();
+        let asset_ids: Vec<i64> = asset_ids_str
+            .map(|s| s.split(',').filter_map(|id| id.parse().ok()).collect())
+            .unwrap_or_default();
+        Ok((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2).ok(),
+            row.get(3)?,
+            row.get(4)?,
+            asset_ids,
         ))
     })?;
     let mut albums = Vec::new();
