@@ -733,12 +733,8 @@ pub async fn get_scan_paths(State(state): State<Arc<AppState>>) -> impl IntoResp
     }).await.ok().flatten();
 
     match result {
-        Some(mut paths) => {
-            // Ensure default root is included if not already present
-            if !paths.contains(&default_root) {
-                paths.insert(0, default_root.clone());
-            }
-            // Return paths with default indicator and host path
+        Some(paths) => {
+            // Return only the configured paths, flagging the default root when present
             let response: Vec<serde_json::Value> = paths.iter().map(|path| {
                 let is_default = path == &default_root;
                 let host_path = if is_default {

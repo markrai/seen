@@ -33,4 +33,5 @@ photos/
 Thumbs.db
 
 # Misc
+docker-compose.custom.tmp.yml
 .claude
