@@ -14,9 +14,16 @@ env:
 
 jobs:
   build:
-    name: Build Windows Executables
-    runs-on: windows-latest
-    
+    name: Build and Package
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
+      FRONTEND_DIR: frontend
+      BACKEND_BIN: seen_backend
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -51,45 +58,56 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build with facial recognition (default)
-        run: |
-          cargo build --release --features facial-recognition
-          if (Test-Path "target\release\nazr-backend-sqlite.exe") {
-            Copy-Item "target\release\nazr-backend-sqlite.exe" "nazr-backend-sqlite.exe"
-          }
+      - name: Build backend (with facial recognition)
+        run: cargo build --release --features facial-recognition
 
-      - name: Build without facial recognition
-        run: |
-          cargo build --release --no-default-features
-          if (Test-Path "target\release\nazr-backend-sqlite.exe") {
-            Copy-Item "target\release\nazr-backend-sqlite.exe" "nazr-backend-sqlite-noface.exe"
-          }
+      - name: Build backend (no facial recognition)
+        run: cargo build --release --no-default-features
 
-            # - name: Run tests
-            #   run: cargo test --features facial-recognition
-
-      - name: Create release archive
+      - name: Package artifacts
+        shell: bash
         run: |
-          $version = $env:GITHUB_REF -replace 'refs/tags/v', ''
-          Compress-Archive -Path nazr-backend-sqlite.exe, nazr-backend-sqlite-noface.exe, frontend/dist -DestinationPath seen-windows-$version.zip -Force
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          OUT_DIR="release-artifacts"
+          mkdir -p "${OUT_DIR}"
+
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            BIN_WITH_FACE="target/release/${BACKEND_BIN}.exe"
+            BIN_NO_FACE="target/release/${BACKEND_BIN}.exe" # rebuilt without features above
+            cp "${BIN_WITH_FACE}" "${OUT_DIR}/seen-backend-windows.exe"
+            cp "${BIN_NO_FACE}" "${OUT_DIR}/seen-backend-windows-noface.exe"
+            cp -r frontend/dist "${OUT_DIR}/dist"
+            powershell -Command "Compress-Archive -Path ${OUT_DIR}\\seen-backend-windows.exe,${OUT_DIR}\\seen-backend-windows-noface.exe,${OUT_DIR}\\dist -DestinationPath ${OUT_DIR}\\seen-windows-${VERSION}.zip -Force"
+          else
+            BIN_WITH_FACE="target/release/${BACKEND_BIN}"
+            BIN_NO_FACE="target/release/${BACKEND_BIN}" # rebuilt without features above
+            cp "${BIN_WITH_FACE}" "${OUT_DIR}/seen-backend-${{ matrix.os }}-with-face"
+            cp "${BIN_NO_FACE}" "${OUT_DIR}/seen-backend-${{ matrix.os }}-noface"
+            cp -r frontend/dist "${OUT_DIR}/dist"
+            tar -czf "${OUT_DIR}/seen-${{ matrix.os }}-${VERSION}.tar.gz" -C "${OUT_DIR}" seen-backend-${{ matrix.os }}-with-face seen-backend-${{ matrix.os }}-noface dist
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-binaries
-          path: |
-            nazr-backend-sqlite.exe
-            nazr-backend-sqlite-noface.exe
-            seen-windows-*.zip
+          name: seen-${{ matrix.os }}-${{ github.ref_name }}
+          path: release-artifacts/**
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            nazr-backend-sqlite.exe
-            nazr-backend-sqlite-noface.exe
-            seen-windows-*.zip
+          files: artifacts/**/*
           draft: false
           prerelease: false
           token: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
