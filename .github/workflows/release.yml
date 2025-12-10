@@ -2,6 +2,8 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -85,7 +87,11 @@ jobs:
         shell: bash
         run: |
           set -e
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="main-${GITHUB_SHA::8}"
+          fi
           OUT_DIR="release-artifacts"
           mkdir -p "${OUT_DIR}"
 
