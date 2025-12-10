@@ -1,6 +1,7 @@
-<img width="5000" height="2000" alt="Seen" src="https://github.com/user-attachments/assets/46edf055-c081-4e42-8b85-a77018d9fd54" />
+<img width="1502" height="328" alt="image" src="https://github.com/user-attachments/assets/ad22d6dd-9d2d-41db-92de-763472a58e62" />
 
-# Seen SQLite v0.8.0 
+
+# Seen v0.8.1
 
 ## Why?
 
