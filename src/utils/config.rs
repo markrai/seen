@@ -43,18 +43,40 @@ impl Config {
 mod tests {
     use super::*;
 
+    fn clear_vars(vars: &[&str]) -> Vec<(String, Option<String>)> {
+        let mut saved = Vec::new();
+        for &k in vars {
+            let prev = env::var(k).ok();
+            saved.push((k.to_string(), prev));
+            env::remove_var(k);
+        }
+        saved
+    }
+
+    fn restore_vars(saved: Vec<(String, Option<String>)>) {
+        for (k, v) in saved {
+            if let Some(val) = v {
+                env::set_var(k, val);
+            } else {
+                env::remove_var(k);
+            }
+        }
+    }
+
     #[test]
     fn test_config_defaults() {
-        // Clear environment variables
-        env::remove_var("FLASH_ROOT");
-        env::remove_var("FLASH_DATA");
-        env::remove_var("FLASH_PORT");
-        env::remove_var("FLASH_HASH_THREADS");
-        env::remove_var("FLASH_META_THREADS");
-        env::remove_var("FLASH_THUMB_THREADS");
-        env::remove_var("FLASH_THUMB_SIZE");
-        env::remove_var("FLASH_PREVIEW_SIZE");
-        
+        let saved = clear_vars(&[
+            "FLASH_ROOT",
+            "FLASH_ROOT_HOST",
+            "FLASH_DATA",
+            "FLASH_PORT",
+            "FLASH_HASH_THREADS",
+            "FLASH_META_THREADS",
+            "FLASH_THUMB_THREADS",
+            "FLASH_THUMB_SIZE",
+            "FLASH_PREVIEW_SIZE",
+        ]);
+
         let config = Config::from_env();
         assert_eq!(config.root, PathBuf::from("/photos"));
         assert_eq!(config.data, PathBuf::from("/flash-data"));
@@ -64,10 +86,24 @@ mod tests {
         assert_eq!(config.thumb_threads, 1);
         assert_eq!(config.thumb_size, 256);
         assert_eq!(config.preview_size, 1600);
+
+        restore_vars(saved);
     }
 
     #[test]
     fn test_config_from_env() {
+        let saved = clear_vars(&[
+            "FLASH_ROOT",
+            "FLASH_ROOT_HOST",
+            "FLASH_DATA",
+            "FLASH_PORT",
+            "FLASH_HASH_THREADS",
+            "FLASH_META_THREADS",
+            "FLASH_THUMB_THREADS",
+            "FLASH_THUMB_SIZE",
+            "FLASH_PREVIEW_SIZE",
+        ]);
+
         env::set_var("FLASH_ROOT", "/custom/photos");
         env::set_var("FLASH_DATA", "/custom/data");
         env::set_var("FLASH_PORT", "8080");
@@ -86,23 +122,16 @@ mod tests {
         assert_eq!(config.thumb_threads, 2);
         assert_eq!(config.thumb_size, 512);
         assert_eq!(config.preview_size, 2048);
-        
-        // Cleanup
-        env::remove_var("FLASH_ROOT");
-        env::remove_var("FLASH_DATA");
-        env::remove_var("FLASH_PORT");
-        env::remove_var("FLASH_HASH_THREADS");
-        env::remove_var("FLASH_META_THREADS");
-        env::remove_var("FLASH_THUMB_THREADS");
-        env::remove_var("FLASH_THUMB_SIZE");
-        env::remove_var("FLASH_PREVIEW_SIZE");
+
+        restore_vars(saved);
     }
 
     #[test]
     fn test_config_root_host() {
+        let saved = clear_vars(&["FLASH_ROOT_HOST"]);
         env::set_var("FLASH_ROOT_HOST", "/host/path");
         let config = Config::from_env();
         assert_eq!(config.root_host, Some("/host/path".to_string()));
-        env::remove_var("FLASH_ROOT_HOST");
+        restore_vars(saved);
     }
 }
