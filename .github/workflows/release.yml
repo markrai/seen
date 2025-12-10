@@ -49,6 +49,17 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Install system dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvips-dev libglib2.0-dev pkg-config clang
+
+      - name: Install system dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install vips glib pkg-config
+
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
