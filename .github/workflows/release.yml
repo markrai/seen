@@ -16,6 +16,7 @@ jobs:
   build:
     name: Build and Package
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -59,10 +60,26 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build backend (with facial recognition)
-        run: cargo build --release --features facial-recognition
+        shell: bash
+        run: |
+          set -e
+          cargo build --release --features facial-recognition
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            cp target/release/${BACKEND_BIN}.exe target/release/${BACKEND_BIN}_with_face.exe
+          else
+            cp target/release/${BACKEND_BIN} target/release/${BACKEND_BIN}_with_face
+          fi
 
       - name: Build backend (no facial recognition)
-        run: cargo build --release --no-default-features
+        shell: bash
+        run: |
+          set -e
+          cargo build --release --no-default-features
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            cp target/release/${BACKEND_BIN}.exe target/release/${BACKEND_BIN}_noface.exe
+          else
+            cp target/release/${BACKEND_BIN} target/release/${BACKEND_BIN}_noface
+          fi
 
       - name: Package artifacts
         shell: bash
@@ -73,15 +90,15 @@ jobs:
           mkdir -p "${OUT_DIR}"
 
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            BIN_WITH_FACE="target/release/${BACKEND_BIN}.exe"
-            BIN_NO_FACE="target/release/${BACKEND_BIN}.exe" # rebuilt without features above
+            BIN_WITH_FACE="target/release/${BACKEND_BIN}_with_face.exe"
+            BIN_NO_FACE="target/release/${BACKEND_BIN}_noface.exe"
             cp "${BIN_WITH_FACE}" "${OUT_DIR}/seen-backend-windows.exe"
             cp "${BIN_NO_FACE}" "${OUT_DIR}/seen-backend-windows-noface.exe"
             cp -r frontend/dist "${OUT_DIR}/dist"
             powershell -Command "Compress-Archive -Path ${OUT_DIR}\\seen-backend-windows.exe,${OUT_DIR}\\seen-backend-windows-noface.exe,${OUT_DIR}\\dist -DestinationPath ${OUT_DIR}\\seen-windows-${VERSION}.zip -Force"
           else
-            BIN_WITH_FACE="target/release/${BACKEND_BIN}"
-            BIN_NO_FACE="target/release/${BACKEND_BIN}" # rebuilt without features above
+            BIN_WITH_FACE="target/release/${BACKEND_BIN}_with_face"
+            BIN_NO_FACE="target/release/${BACKEND_BIN}_noface"
             cp "${BIN_WITH_FACE}" "${OUT_DIR}/seen-backend-${{ matrix.os }}-with-face"
             cp "${BIN_NO_FACE}" "${OUT_DIR}/seen-backend-${{ matrix.os }}-noface"
             cp -r frontend/dist "${OUT_DIR}/dist"
@@ -97,11 +114,13 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    if: always()
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          if-no-artifact-found: ignore
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
