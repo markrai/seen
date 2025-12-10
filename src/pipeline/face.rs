@@ -28,7 +28,7 @@ pub const FACE_CLUSTER_BATCH_SIZE: usize = 100;
 
 #[cfg(feature = "facial-recognition")]
 fn get_cluster_batch_size() -> usize {
-    std::env::var("NAZR_FACE_CLUSTER_BATCH")
+    std::env::var("SEEN_FACE_CLUSTER_BATCH")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(FACE_CLUSTER_BATCH_SIZE)
@@ -82,7 +82,7 @@ impl FaceProcessor {
     pub fn new(models_dir: PathBuf) -> Self {
         Self {
             models_dir,
-            use_gpu: std::env::var("NAZR_FACE_USE_GPU")
+            use_gpu: std::env::var("SEEN_FACE_USE_GPU")
                 .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE"))
                 .unwrap_or(false),
             scrfd_session: None,
@@ -98,7 +98,7 @@ impl FaceProcessor {
         std::fs::create_dir_all(&self.models_dir)
             .context("Failed to create models directory")?;
 
-        let auto_dl = std::env::var("NAZR_FACE_AUTO_DOWNLOAD")
+        let auto_dl = std::env::var("SEEN_FACE_AUTO_DOWNLOAD")
             .map(|v| !matches!(v.as_str(), "0" | "false" | "FALSE"))
             .unwrap_or(true);
         if auto_dl {
@@ -388,7 +388,7 @@ impl FaceProcessor {
             info!("SCRFD detected {} potential faces across all scales", n);
                 
             // Get configurable confidence threshold (default 0.20)
-            let base_confidence_threshold: f32 = std::env::var("NAZR_FACE_CONFIDENCE_THRESHOLD")
+            let base_confidence_threshold: f32 = std::env::var("SEEN_FACE_CONFIDENCE_THRESHOLD")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.20);
@@ -551,7 +551,7 @@ impl FaceProcessor {
 
             info!("After confidence filter (threshold={:.3}): {} faces passed", base_confidence_threshold, raw.len());
             
-            let nms_iou_threshold: f32 = std::env::var("NAZR_FACE_NMS_IOU_THRESHOLD")
+            let nms_iou_threshold: f32 = std::env::var("SEEN_FACE_NMS_IOU_THRESHOLD")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.4);
@@ -702,7 +702,7 @@ pub fn cluster_faces_hdbscan(
     // `min_samples` for both.
     // Epsilon (distance threshold): Lower = stricter (more fragmentation), Higher = looser (more merging)
     // Default 0.55 allows for some variation in lighting/pose while keeping different people separate.
-    let epsilon: f32 = std::env::var("NAZR_FACE_CLUSTER_EPSILON")
+    let epsilon: f32 = std::env::var("SEEN_FACE_CLUSTER_EPSILON")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.55);
@@ -1027,11 +1027,11 @@ pub async fn start_face_workers(
                                     // Prepare embeddings slice for clustering
                                     let embeds_only: Vec<FaceEmbedding> = items.iter().map(|(_, e)| e.clone()).collect();
                                     // Use configurable clustering parameters (HDBSCAN-style)
-                                    let min_cluster_size: usize = std::env::var("NAZR_FACE_HDBSCAN_MIN_CLUSTER_SIZE")
+                                    let min_cluster_size: usize = std::env::var("SEEN_FACE_HDBSCAN_MIN_CLUSTER_SIZE")
                                         .ok()
                                         .and_then(|v| v.parse().ok())
                                         .unwrap_or(3);
-                                    let min_samples: usize = std::env::var("NAZR_FACE_HDBSCAN_MIN_SAMPLES")
+                                    let min_samples: usize = std::env::var("SEEN_FACE_HDBSCAN_MIN_SAMPLES")
                                         .ok()
                                         .and_then(|v| v.parse().ok())
                                         .unwrap_or(2);

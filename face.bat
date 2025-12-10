@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
 
-echo Starting Nazr backend with Docker Compose (Facial Recognition Mode)...
+echo Starting Seen backend with Docker Compose (Facial Recognition Mode)...
 echo Using docker-compose.custom.yml
 echo.
 
@@ -14,7 +14,7 @@ echo - Build the Docker image
 echo - With features: %CARGO_BUILD_FLAGS%
 echo - Start the service on port 8080
 echo - Mount your Pictures folder: %USERPROFILE%\Pictures
-echo - Store data in: .\nazr-data
+echo - Store data in: .\seen-data
 echo - Use all available CPU cores
 echo.
 

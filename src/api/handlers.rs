@@ -9,8 +9,19 @@ use hex;
 use std::path::Path as StdPath;
 use crate::utils::ffmpeg;
 use std::io;
+use axum::response::Html;
 #[cfg(not(target_env = "msvc"))]
 use libvips::ops::Angle;
+
+pub async fn serve_index() -> impl IntoResponse {
+    // Serve the built SPA entrypoint from the Vite dist output
+    if let Ok(body) = tokio::fs::read_to_string("frontend/dist/index.html").await {
+        let mime = mime_guess::from_path("index.html").first_or_octet_stream();
+        (StatusCode::OK, [(header::CONTENT_TYPE, mime.as_ref())], Html(body)).into_response()
+    } else {
+        (StatusCode::NOT_FOUND, "Not Found").into_response()
+    }
+}
 
 pub async fn health() -> impl IntoResponse {
     let v = env!("CARGO_PKG_VERSION");
@@ -587,11 +598,11 @@ async fn serve_derived(state: Arc<AppState>, id: i64, derived_dir: std::path::Pa
 pub async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let mut text = state.stats.metrics_text();
     let d = state.gauges.depths();
-    text.push_str(&format!("nazr_queue_discover {}\n", d.discover));
-    text.push_str(&format!("nazr_queue_hash {}\n", d.hash));
-    text.push_str(&format!("nazr_queue_metadata {}\n", d.metadata));
-    text.push_str(&format!("nazr_queue_db_write {}\n", d.db_write));
-    text.push_str(&format!("nazr_queue_thumb {}\n", d.thumb));
+    text.push_str(&format!("seen_queue_discover {}\n", d.discover));
+    text.push_str(&format!("seen_queue_hash {}\n", d.hash));
+    text.push_str(&format!("seen_queue_metadata {}\n", d.metadata));
+    text.push_str(&format!("seen_queue_db_write {}\n", d.db_write));
+    text.push_str(&format!("seen_queue_thumb {}\n", d.thumb));
     axum::http::Response::builder().status(StatusCode::OK).header(header::CONTENT_TYPE, "text/plain; version=0.0.4").body(axum::body::Body::from(text)).unwrap()
 }
 
@@ -675,7 +686,7 @@ pub async fn performance(State(state): State<Arc<AppState>>) -> impl IntoRespons
     };
 
     let comparison = serde_json::json!({
-        "nazr": {
+        "seen": {
             "files_per_sec": files_per_sec,  // Overall lifetime average
             "current_rate": current_rate,     // Current/active rate (0.0 if idle)
             "mb_per_sec": mb_per_sec,
@@ -1254,8 +1265,8 @@ pub async fn stream_video(State(state): State<Arc<AppState>>, Path(id): Path<i64
 
     if mime_str == "video/mp4" {
         // HEVC transcode behavior can be controlled via env:
-        // NAZR_HEVC_TRANSCODE = "auto" (default) | "never" | "always"
-        let hevc_mode = std::env::var("NAZR_HEVC_TRANSCODE")
+        // SEEN_HEVC_TRANSCODE = "auto" (default) | "never" | "always"
+        let hevc_mode = std::env::var("SEEN_HEVC_TRANSCODE")
             .unwrap_or_else(|_| "auto".to_string())
             .to_lowercase();
 

@@ -48,6 +48,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libvips-dev libglib2.0-dev
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
       - name: Run tests with features
         if: matrix.features == 'default'
         run: cargo test --all-features --verbose

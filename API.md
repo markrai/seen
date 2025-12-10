@@ -1,6 +1,6 @@
-# Nazr API Documentation
+# Seen API Documentation
 
-This document describes the REST API endpoints provided by the Nazr backend server. The API uses JSON for request and response bodies, and follows standard HTTP status codes.
+This document describes the REST API endpoints provided by the Seen backend server. The API uses JSON for request and response bodies, and follows standard HTTP status codes.
 
 **Base URL**: The API is typically served on `http://localhost:3000` (or as configured)
 
@@ -138,7 +138,7 @@ Get detailed performance metrics and comparisons with other photo library softwa
 
 ```json
 {
-  "nazr": {
+  "seen": {
     "files_per_sec": 25.5,
     "current_rate": 25.5,
     "mb_per_sec": 25.5,
@@ -149,7 +149,7 @@ Get detailed performance metrics and comparisons with other photo library softwa
     "cpu_cores": 8,
     "cpu_brand": "Intel Core i7-9700K",
     "accel": "CUDA",
-    "note": "Estimated performance ranges based on your hardware (CPU cores). Values are static and don't change with Nazr's current rate."
+    "note": "Estimated performance ranges based on your hardware (CPU cores). Values are static and don't change with Seen's current rate."
   },
   "gpu_usage": {
     "enabled": true,
@@ -330,7 +330,7 @@ Get detailed information about a specific asset.
 
 ### DELETE /asset/:id
 
-Remove an asset from the Nazr index (database/search) without touching the original file on disk. Generated thumbnails/previews are still removed.
+Remove an asset from the Seen index (database/search) without touching the original file on disk. Generated thumbnails/previews are still removed.
 
 **Path Parameters**:
 - `id`: Asset ID
@@ -345,7 +345,7 @@ Remove an asset from the Nazr index (database/search) without touching the origi
 
 ### DELETE /asset/:id/permanent
 
-Permanently delete an asset from both the Nazr index and the original filesystem. Thumbnails/previews are removed as well.
+Permanently delete an asset from both the Seen index and the original filesystem. Thumbnails/previews are removed as well.
 
 **Path Parameters**:
 - `id`: Asset ID
@@ -853,8 +853,8 @@ Get a thumbnail image of a detected face.
 Trigger face clustering to group similar faces into persons.
 
 **Query Parameters**:
-- `epsilon` (optional): Clustering epsilon parameter (default: 0.55, or from `NAZR_FACE_CLUSTER_EPSILON` env var)
-- `min_samples` (optional): Minimum samples per cluster (default: 2, or from `NAZR_FACE_HDBSCAN_MIN_SAMPLES` env var)
+- `epsilon` (optional): Clustering epsilon parameter (default: 0.55, or from `SEEN_FACE_CLUSTER_EPSILON` env var)
+- `min_samples` (optional): Minimum samples per cluster (default: 2, or from `SEEN_FACE_HDBSCAN_MIN_SAMPLES` env var)
 
 **Response**: `200 OK` on success, `409 Conflict` if face detection is running, `500 Internal Server Error` on error
 

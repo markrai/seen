@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.gitignore
+npm-debug.log*
+Dockerfile.local
+.DS_Store
+.env
+.env.local
+.env.*.local
+
+# Tauri build artifacts (not needed for Docker build)
+src-tauri/target/
+src-tauri/gen/
+

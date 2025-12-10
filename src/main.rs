@@ -1,9 +1,9 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use nazr_backend_sqlite::utils::config::Config;
-use nazr_backend_sqlite::utils::logging;
-use nazr_backend_sqlite::db;
-use nazr_backend_sqlite::pipeline::{self, discover, hash, metadata, thumb};
+use seen_backend::utils::config::Config;
+use seen_backend::utils::logging;
+use seen_backend::db;
+use seen_backend::pipeline::{self, discover, hash, metadata, thumb};
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -21,17 +21,17 @@ async fn main() -> anyhow::Result<()> {
     let derived_dir = data_dir.join("derived");
     std::fs::create_dir_all(&db_dir)?;
     std::fs::create_dir_all(&derived_dir)?;
-    let db_path = db_dir.join("nazr.db");
+    let db_path = db_dir.join("seen.db");
     // Create connection pool with 10 connections (good for SQLite WAL mode)
     let pool = db::create_pool(&db_path, 10)?;
     // Initialize libvips (warnings are suppressed via environment variables set above)
     #[cfg(not(target_env = "msvc"))]
-    let _app = libvips::VipsApp::new("nazr", false)?;
+    let _app = libvips::VipsApp::new("seen", false)?;
     #[cfg(target_env = "msvc")]
     let _app = (); // libvips doesn't compile on Windows MSVC
     
     // Initialize GPU configuration
-    let _gpu_config = nazr_backend_sqlite::utils::ffmpeg::init_gpu_config();
+    let _gpu_config = seen_backend::utils::ffmpeg::init_gpu_config();
 
     let (discover_tx, discover_rx) = mpsc::channel::<discover::DiscoverItem>(100_000);
     let (hash_tx, hash_rx) = mpsc::channel::<hash::HashJob>(4_096);
@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
     let gauges = Arc::new(pipeline::QueueGauges::default());
     
     // Create stats first so we can initialize it and pass it to forwarder
-    let stats = Arc::new(nazr_backend_sqlite::stats::Stats::new());
+    let stats = Arc::new(seen_backend::stats::Stats::new());
     
     // Initialize files_committed from database count on startup
     {
@@ -96,15 +96,15 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "facial-recognition")]
     let face_index = Arc::new(parking_lot::Mutex::new(pipeline::face::FaceIndex::new()));
     
-    let paths = nazr_backend_sqlite::AppPaths { root: cfg.root.clone(), root_host: cfg.root_host.clone(), data: cfg.data.clone(), db_path: db_path.clone(), derived: derived_dir.clone() };
+    let paths = seen_backend::AppPaths { root: cfg.root.clone(), root_host: cfg.root_host.clone(), data: cfg.data.clone(), db_path: db_path.clone(), derived: derived_dir.clone() };
     #[cfg(feature = "facial-recognition")]
     let queues = pipeline::Queues { discover_tx: discover_tx.clone(), hash_tx: hash_tx.clone(), meta_tx: meta_tx.clone(), db_tx: db_tx.clone(), thumb_tx: thumb_tx.clone(), face_tx: face_tx.clone() };
     #[cfg(not(feature = "facial-recognition"))]
     let queues = pipeline::Queues { discover_tx: discover_tx.clone(), hash_tx: hash_tx.clone(), meta_tx: meta_tx.clone(), db_tx: db_tx.clone(), thumb_tx: thumb_tx.clone() };
     #[cfg(feature = "facial-recognition")]
-    let state = Arc::new(nazr_backend_sqlite::AppState::new(paths, pool, queues, gauges.clone(), stats.clone(), face_processor_arc.clone(), face_index.clone()));
+    let state = Arc::new(seen_backend::AppState::new(paths, pool, queues, gauges.clone(), stats.clone(), face_processor_arc.clone(), face_index.clone()));
     #[cfg(not(feature = "facial-recognition"))]
-    let state = Arc::new(nazr_backend_sqlite::AppState::new(paths, pool, queues, gauges.clone(), stats.clone()));
+    let state = Arc::new(seen_backend::AppState::new(paths, pool, queues, gauges.clone(), stats.clone()));
     
     // Note: File watchers are now started dynamically when paths are added or scans are started
     // The old static watcher has been removed in favor of per-path watchers
@@ -187,7 +187,7 @@ async fn main() -> anyhow::Result<()> {
             pipeline::face::start_face_workers(n_workers, face_rx, processor, dbp, g, idx).await;
         });
     }
-    let app = nazr_backend_sqlite::api::routes::router(state.clone());
+    let app = seen_backend::api::routes::router(state.clone());
     let addr = SocketAddr::from(([0,0,0,0], cfg.port));
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("listening" = %addr);

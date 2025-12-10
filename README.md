@@ -1,10 +1,10 @@
-<img width="5000" height="2000" alt="Nazr" src="https://github.com/user-attachments/assets/46edf055-c081-4e42-8b85-a77018d9fd54" />
+<img width="5000" height="2000" alt="Seen" src="https://github.com/user-attachments/assets/46edf055-c081-4e42-8b85-a77018d9fd54" />
 
-# Nazr SQLite v0.8.0 
+# Seen SQLite v0.8.0 
 
 ## Why?
 
-*Pure speed*. Nazr is built on Rust, which provides us with a significant advantage in raw performance, memory safety, and concurrency for I/O and CPU-heavy tasks, compared to a Node.js based backend, for example. It's light weight, which means faster deployments.
+*Pure speed*. Seen is built on Rust, which provides us with a significant advantage in raw performance, memory safety, and concurrency for I/O and CPU-heavy tasks. It's light weight, which means faster deployments.
 
 *Customization*. Most media management apps are opinionated, by design. Which organization strategy should the app follow: Metadata over folder structure? Should a *delete* only remove from the gallery, or the file system? We want to put these choices *in your hands*, offering sensible "set it, and forget it" preferences. 
 
@@ -12,7 +12,7 @@
 
 *Choice.* For single-user simplicity, the **SQLite** backend steps away from a microservice architecture, to a self-contained binary. The ingestion pipeline is clear and modular for future extensibility. For even more scalability, there is also a **PostgreSQL** version.
 
-*Decoupled architecture.* The backend deploys separately from the frontend, and is client agnostic. You can even create your own, and it will work with Nazr's backend.
+*Decoupled architecture.* The backend deploys separately from the frontend, and is client agnostic. You can even create your own, and it will work with Seen's backend.
 
 *Quirky - in all the good ways.* A search box which accepts wildcards. Advanced filters to specifically search for WhatsApp or Google Pixel media. Extract audio from video. Ability to transcode older video formats such as MPG, 3GP, WMV,  AVI, etc. Image burst capture of video.
 
@@ -28,49 +28,49 @@ Detect and mange individuals in your photo library. This feature uses InsightFac
 
 ## Docker Images
 
-All Docker images are available on Docker Hub at `markraidc/nazr-backend-sqlite`:
+All Docker images are available on Docker Hub at `markraidc/seen-backend`:
 
 ### x86_64/AMD64 Images
 
 **With Facial Recognition:**
-- `markraidc/nazr-backend-sqlite:0.8.0` (~867MB)
-- `markraidc/nazr-backend-sqlite:latest` (~867MB)
+- `markraidc/seen-backend:0.8.0` (~867MB)
+- `markraidc/seen-backend:latest` (~867MB)
 
 **Without Facial Recognition:**
-- `markraidc/nazr-backend-sqlite:0.8.0-no-face` (~829MB)
-- `markraidc/nazr-backend-sqlite:latest-no-face` (~829MB)
+- `markraidc/seen-backend:0.8.0-no-face` (~829MB)
+- `markraidc/seen-backend:latest-no-face` (~829MB)
 
 ### ARM64 Images
 
 **With Facial Recognition:**
-- `markraidc/nazr-backend-sqlite:0.8.0-arm64` (~214MB)
-- `markraidc/nazr-backend-sqlite:latest-arm64` (~214MB)
+- `markraidc/seen-backend:0.8.0-arm64` (~214MB)
+- `markraidc/seen-backend:latest-arm64` (~214MB)
 
 **Without Facial Recognition:**
-- `markraidc/nazr-backend-sqlite:0.8.0-no-face-arm64` (~214MB)
-- `markraidc/nazr-backend-sqlite:latest-no-face-arm64` (~214MB)
+- `markraidc/seen-backend:0.8.0-no-face-arm64` (~214MB)
+- `markraidc/seen-backend:latest-no-face-arm64` (~214MB)
 
 ### Pulling Images
 
 ```bash
 # x86_64 with facial recognition
-docker pull markraidc/nazr-backend-sqlite:latest
+docker pull markraidc/seen-backend:latest
 
 # x86_64 without facial recognition
-docker pull markraidc/nazr-backend-sqlite:latest-no-face
+docker pull markraidc/seen-backend:latest-no-face
 
 # ARM64 with facial recognition
-docker pull markraidc/nazr-backend-sqlite:latest-arm64
+docker pull markraidc/seen-backend:latest-arm64
 
 # ARM64 without facial recognition
-docker pull markraidc/nazr-backend-sqlite:latest-no-face-arm64
+docker pull markraidc/seen-backend:latest-no-face-arm64
 ```
 
 ---
 
 ## Deployment Options
 
-Nazr can be deployed **with** or **without** facial recognition support:
+Seen can be deployed **with** or **without** facial recognition support:
 
 ### **With Facial Recognition (Default)**
 
@@ -126,7 +126,7 @@ If you want to use a different photo directory, edit `docker-compose.windows.yml
 ```yaml
 volumes:
   - C:/path/to/your/photos:/photos:ro
-  - ./nazr-data:/flash-data:rw
+  - ./seen-data:/flash-data:rw
 ```
 
 #### Lightweight Deployment (Without Facial Recognition)
@@ -151,11 +151,11 @@ Build a native Windows executable for better file watcher support:
 cargo build --release
 ```
 
-**Output:** `target\release\nazr-backend-sqlite.exe`
+**Output:** `target\release\seen_backend.exe`
 
 **Run with batch file (recommended):**
 ```bash
-run-nazr-windows.bat
+run-seen-windows.bat
 ```
 
 The batch file automatically uses your Windows user's Pictures folder (`%USERPROFILE%\Pictures`).
@@ -164,14 +164,81 @@ The batch file automatically uses your Windows user's Pictures folder (`%USERPRO
 ```bash
 set FLASH_ROOT=%USERPROFILE%\Pictures
 set FLASH_ROOT_HOST=%USERPROFILE%\Pictures
-set FLASH_DATA=.\nazr-data
+set FLASH_DATA=.\seen-data
 set FLASH_PORT=9161
 set RUST_LOG=info
 
-target\release\nazr-backend-sqlite.exe
+target\release\seen_backend.exe
 ```
 
 **Note:** Native Windows builds use the `image` crate for thumbnails (slower than libvips but functional). File watcher works properly on Windows, detecting moves/renames in Explorer. Docker builds are unaffected.
+
+### Frontend + Backend (Unified Repo)
+
+This repository now contains both the Rust backend and the React/Vite frontend.
+
+#### Local Development
+
+- **Frontend dev server (best DX):**
+  - From `frontend/`:
+    ```bash
+    npm install        # first time only
+    npm run dev        # runs Vite on port 5173
+    ```
+  - From the repo root, run the backend:
+    ```bash
+    cargo run
+    ```
+  - Create `frontend/.env.local` (optional) to point Vite at the backend API:
+    ```bash
+    VITE_API_BASE_URL=http://localhost:9161/api
+    ```
+
+- **Integrated mode (backend serves built frontend):**
+  - From `frontend/`:
+    ```bash
+    npm install        # first time only
+    npm run build      # outputs to frontend/dist
+    ```
+  - From the repo root:
+    ```bash
+    cargo run
+    ```
+  - Then open `http://localhost:9161/` – the Axum server serves `frontend/dist/index.html`
+    and static assets from `frontend/dist/assets`.
+
+### Combined Frontend and Backend Docker Build
+
+To build a single Docker image that includes both the frontend and backend, use the `Dockerfile.combined` file.
+
+The Dockerfile now uses the in-repo `frontend/` directory and runs `npm ci && npm run build`
+to produce `frontend/dist` before building the backend.
+
+### Docker Compose files (current support)
+
+- `docker-compose.custom.yml`: local/dev (used by `dev.bat`, works with optional CUDA via `adjust-docker-compose.ps1`).
+- `docker-compose.test.yml`: CI/testing.
+
+All legacy platform-specific compose files have been removed; if you need a platform-specific variant, derive from `docker-compose.custom.yml` and override via environment variables.
+
+### Compose overrides (example)
+
+You can override paths, ports, and GPU flags via an env file. Example `my.env`:
+
+```
+FLASH_ROOT=/photos
+FLASH_DATA=./seen-data
+FLASH_PORT=9161
+SEEN_USE_GPU=0
+```
+
+Then run:
+
+```
+docker compose --env-file my.env -f docker-compose.custom.yml up --build
+```
+
+For CUDA, set `SEEN_USE_GPU=1` and ensure your host has the NVIDIA container toolkit installed.
 
 ---
 
@@ -189,22 +256,22 @@ Before deploying via Portainer or Docker Compose, create the required directorie
    sudo chmod 755 /volume1/photos
    ```
 
-3. **Create the Nazr data directory**:
+3. **Create the Seen data directory**:
    ```bash
-   sudo mkdir -p /volume1/nazr
-   sudo chmod 755 /volume1/nazr
+   sudo mkdir -p /volume1/seen
+   sudo chmod 755 /volume1/seen
    ```
 
 4. **Verify directories exist**:
    ```bash
-   ls -la /volume1/ | grep -E "photos|nazr"
+   ls -la /volume1/ | grep -E "photos|seen"
    ```
 
 #### Deployment via Portainer
 
 1. Open **Portainer** in your browser
 2. Navigate to **Stacks** → **Add Stack**
-3. Name your stack (e.g., `nazr`)
+3. Name your stack (e.g., `seen`)
 4. Choose **Git Repository** or **Upload** method:
    - **Git Repository**: Point to your repository and select `docker-compose.synology.yml`
    - **Upload**: Copy the contents of `docker-compose.synology.yml`
@@ -219,7 +286,7 @@ docker compose -f docker-compose.synology.yml up -d --build
 #### Configuration Notes
 
 - **Default photo path**: `/volume1/photos`
-- **Data storage**: `/volume1/nazr` (database, thumbnails, models)
+- **Data storage**: `/volume1/seen` (database, thumbnails, models)
 - **Port**: `9161`
 - **GPU Acceleration**: Configured for Intel QSV (DS220+ with J4025 CPU)
 - **Memory**: 1GB limit (suitable for DS220+ with 2GB RAM)
@@ -228,7 +295,7 @@ If your photos are in a different location, edit the `docker-compose.synology.ym
 ```yaml
 volumes:
   - /volume1/your-photos:/photos:rw
-  - /volume1/nazr:/flash-data:rw
+  - /volume1/seen:/flash-data:rw
 ```
 
 And update the environment variable:
@@ -273,22 +340,22 @@ Before deploying via Portainer or Docker Compose, create the required directorie
    
    Check your actual mount points with: `df -h` or `mount | grep mnt`
 
-3. **Create the Nazr data directory**:
+3. **Create the Seen data directory**:
    ```bash
-   sudo mkdir -p /mnt/ugreen/nazr
-   sudo chmod 755 /mnt/ugreen/nazr
+   sudo mkdir -p /mnt/ugreen/seen
+   sudo chmod 755 /mnt/ugreen/seen
    ```
 
 4. **Verify directories exist**:
    ```bash
-   ls -la /mnt/ugreen/ | grep -E "photos|nazr"
+   ls -la /mnt/ugreen/ | grep -E "photos|seen"
    ```
 
 #### Deployment via Portainer
 
 1. Open **Portainer** in your browser
 2. Navigate to **Stacks** → **Add Stack**
-3. Name your stack (e.g., `nazr`)
+3. Name your stack (e.g., `seen`)
 4. Choose **Git Repository** or **Upload** method:
    - **Git Repository**: Point to your repository and select `docker-compose.ugreen.yml`
    - **Upload**: Copy the contents of `docker-compose.ugreen.yml`
@@ -314,7 +381,7 @@ docker compose -f docker-compose.ugreen.yml up -d --build
 #### Configuration Notes
 
 - **Default photo path**: `/mnt/ugreen/photos` (update if different)
-- **Data storage**: `/mnt/ugreen/nazr` (database, thumbnails, models)
+- **Data storage**: `/mnt/ugreen/seen` (database, thumbnails, models)
 - **Port**: `9161`
 - **GPU Acceleration**: Auto-detect (set to `qsv` if you have Intel CPU)
 - **Memory**: 512MB limit (adjust based on your NAS specs)
@@ -328,7 +395,7 @@ If your photos are in a different location, edit the `docker-compose.ugreen.yml`
 ```yaml
 volumes:
   - /your/actual/path/photos:/photos:rw
-  - /your/actual/path/nazr:/flash-data:rw
+  - /your/actual/path/seen:/flash-data:rw
 ```
 
 And update the environment variable:
@@ -353,11 +420,11 @@ This version:
 
 ---
 
-**Service Access**: After deployment, access Nazr at `http://your-nas-ip:9161`
+**Service Access**: After deployment, access Seen at `http://your-nas-ip:9161`
 
 ## Path Mapping (Docker/WSL)
 
-When Nazr runs inside Docker/WSL, the database still contains the host's original file paths (for example `C:\Users\you\Pictures`). The backend now normalizes every file operation (rotation, delete-from-disk, etc.) by remapping that host prefix to the container mount. Configure these environment variables so the mapping is unambiguous:
+When Seen runs inside Docker/WSL, the database still contains the host's original file paths (for example `C:\Users\you\Pictures`). The backend now normalizes every file operation (rotation, delete-from-disk, etc.) by remapping that host prefix to the container mount. Configure these environment variables so the mapping is unambiguous:
 
 - `FLASH_ROOT` – the path inside the container that is bind-mounted to your photos (defaults to `/photos`)
 - `FLASH_ROOT_HOST` – the original host path that was scanned (e.g. `C:\Users\you\Pictures`)
@@ -372,7 +439,7 @@ volumes:
   - C:/Users/you/Pictures:/photos:rw
 ```
 
-With this mapping in place, Nazr can always resolve the real file even when running in a different environment.
+With this mapping in place, Seen can always resolve the real file even when running in a different environment.
 
 ## Testing
 
@@ -395,7 +462,7 @@ docker compose -f docker-compose.test.yml run --rm test cargo test --no-default-
 
 - Images/videos are not stored in SQLite, only metadata.
 - Thumbnails and previews are saved under ${FLASH_DATA}/derived.
-- SQLite is in WAL mode; DB file at ${FLASH_DATA}/db/nazr.db.
+- SQLite is in WAL mode; DB file at ${FLASH_DATA}/db/seen.db.
 
 <img width="1873" height="836" alt="image" src="https://github.com/user-attachments/assets/7c46c906-c65b-4da6-9e95-7308b948b79a" />
 

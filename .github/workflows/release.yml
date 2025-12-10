@@ -21,6 +21,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -58,7 +71,7 @@ jobs:
       - name: Create release archive
         run: |
           $version = $env:GITHUB_REF -replace 'refs/tags/v', ''
-          Compress-Archive -Path nazr-backend-sqlite.exe, nazr-backend-sqlite-noface.exe -DestinationPath nazr-backend-sqlite-windows-$version.zip -Force
+          Compress-Archive -Path nazr-backend-sqlite.exe, nazr-backend-sqlite-noface.exe, frontend/dist -DestinationPath seen-windows-$version.zip -Force
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -67,7 +80,7 @@ jobs:
           path: |
             nazr-backend-sqlite.exe
             nazr-backend-sqlite-noface.exe
-            nazr-backend-sqlite-windows-*.zip
+            seen-windows-*.zip
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -76,7 +89,7 @@ jobs:
           files: |
             nazr-backend-sqlite.exe
             nazr-backend-sqlite-noface.exe
-            nazr-backend-sqlite-windows-*.zip
+            seen-windows-*.zip
           draft: false
           prerelease: false
           token: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}

@@ -93,7 +93,7 @@ RUN ldconfig
 
 WORKDIR /app
 ENV RUST_LOG=info
-COPY --from=builder /app/target/release/nazr-backend-sqlite /usr/local/bin/nazr-backend-sqlite
+COPY --from=builder /app/target/release/seen_backend /usr/local/bin/seen_backend
 EXPOSE 8080
-ENTRYPOINT ["nazr-backend-sqlite"]
+ENTRYPOINT ["seen_backend"]
 

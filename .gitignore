@@ -14,9 +14,16 @@ target/
 *.pdb
 
 # User-specific data directories (from docker-compose volumes)
+seen-data/
 nazr-data/
 flash-data/
 photos/
+cache/
+tmp/
+temp/
+.cache/
+.tmp/
+.temp/
 
 # Environment variables
 .env
@@ -35,3 +42,8 @@ Thumbs.db
 # Misc
 docker-compose.custom.tmp.yml
 .claude
+docker-compose.custom.tmp.yml
+
+# Frontend build artifacts and dependencies
+frontend/node_modules/
+frontend/dist/

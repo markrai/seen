@@ -18,7 +18,7 @@ Tests require a Linux environment with:
 
 ## Why Docker?
 
-Nazr is a Docker-based application designed for Linux deployment. Tests are written to run in the same environment as production:
+Seen is a Docker-based application designed for Linux deployment. Tests are written to run in the same environment as production:
 
 - ✅ Consistent test environment across all platforms
 - ✅ Matches production deployment

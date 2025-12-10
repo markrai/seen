@@ -1,6 +1,6 @@
 # GPU Acceleration for Video Thumbnails
 
-Nazr supports GPU-accelerated video frame extraction using ffmpeg hardware acceleration. This can significantly improve performance when processing video files.
+Seen supports GPU-accelerated video frame extraction using ffmpeg hardware acceleration. This can significantly improve performance when processing video files.
 
 ## Supported Accelerators
 
@@ -18,7 +18,7 @@ Nazr supports GPU-accelerated video frame extraction using ffmpeg hardware accel
 
 ### Auto-Detection
 
-By default, Nazr automatically detects available GPU accelerators at startup. It checks:
+By default, Seen automatically detects available GPU accelerators at startup. It checks:
 1. Available hardware accelerators via `ffmpeg -hwaccels`
 2. Required GPU scaling filters (e.g., `scale_cuda`, `scale_qsv`)
 3. **Physical device presence** - verifies actual GPU hardware, not just libraries:
@@ -39,7 +39,7 @@ By default, Nazr automatically detects available GPU accelerators at startup. It
 **docker-compose.yml:**
 ```yaml
 services:
-  nazr:
+  seen:
     # ... other config ...
     deploy:
       resources:
@@ -66,7 +66,7 @@ services:
 **docker-compose.yml:**
 ```yaml
 services:
-  nazr:
+  seen:
     # ... other config ...
     devices:
       - /dev/dri:/dev/dri:ro  # Mount DRI devices for GPU access
@@ -84,7 +84,7 @@ services:
 **docker-compose.yml:**
 ```yaml
 services:
-  nazr:
+  seen:
     # ... other config ...
     environment:
       - GPU_ACCEL=auto  # or 'd3d11va' to force D3D11VA
@@ -101,7 +101,7 @@ services:
 **docker-compose.yml:**
 ```yaml
 services:
-  nazr:
+  seen:
     # ... other config ...
     environment:
       - GPU_ACCEL=auto  # or 'videotoolbox' to force VideoToolbox
@@ -133,7 +133,7 @@ services:
 
 3. **Via Logs:**
    ```bash
-   docker logs nazr | grep -i gpu
+   docker logs seen | grep -i gpu
    ```
    Or set `GPU_LOG=1` environment variable for detailed GPU logging.
 
@@ -149,21 +149,21 @@ The performance dashboard tracks GPU vs CPU usage:
 
 1. **Check ffmpeg capabilities:**
    ```bash
-   docker exec nazr ffmpeg -hide_banner -hwaccels
+   docker exec seen ffmpeg -hide_banner -hwaccels
    ```
 
 2. **Check available filters:**
    ```bash
-   docker exec nazr ffmpeg -hide_banner -filters | grep scale
+   docker exec seen ffmpeg -hide_banner -filters | grep scale
    ```
 
 3. **Verify GPU access in container:**
-   - For NVIDIA: `docker exec nazr nvidia-smi` (if nvidia-smi is available)
-   - For Intel: `docker exec nazr ls -la /dev/dri/`
+   - For NVIDIA: `docker exec seen nvidia-smi` (if nvidia-smi is available)
+   - For Intel: `docker exec seen ls -la /dev/dri/`
 
 ### Fallback Behavior
 
-Nazr automatically falls back to CPU if:
+Seen automatically falls back to CPU if:
 - GPU acceleration fails (e.g., unsupported codec)
 - GPU command times out (>10 seconds)
 - GPU is not available

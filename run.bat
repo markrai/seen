@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
 
-echo Starting Nazr backend with Docker Compose...
+echo Starting Seen backend with Docker Compose...
 echo Using docker-compose.windows.yml
 echo.
 
@@ -27,7 +27,7 @@ if not "%CARGO_BUILD_FLAGS%"=="" (
 )
 echo - Start the service on port 8080
 echo - Mount your Pictures folder: %USERPROFILE%\Pictures
-echo - Store data in: .\nazr-data
+echo - Store data in: .\seen-data
 echo.
 
 REM CARGO_BUILD_FLAGS environment variable is automatically passed to docker compose

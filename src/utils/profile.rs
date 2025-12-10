@@ -2,11 +2,11 @@ use once_cell::sync::OnceCell;
 use std::sync::Mutex;
 
 // Global profiler guard, initialized only when explicitly enabled
-// (e.g., via NAZR_PROFILE_FLAMEGRAPH in docker-compose.custom.yml).
+// (e.g., via SEEN_PROFILE_FLAMEGRAPH in docker-compose.custom.yml).
 static PROFILER_GUARD: OnceCell<Mutex<Option<pprof::ProfilerGuard<'static>>>> = OnceCell::new();
 
 pub fn init_if_enabled() {
-    if std::env::var("NAZR_PROFILE_FLAMEGRAPH").is_ok() {
+    if std::env::var("SEEN_PROFILE_FLAMEGRAPH").is_ok() {
         let guard = pprof::ProfilerGuardBuilder::default()
             .frequency(99)
             .build()

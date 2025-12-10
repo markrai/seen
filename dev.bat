@@ -1,8 +1,30 @@
 @echo off
 cd /d "%~dp0"
 
-echo Starting Nazr backend with Docker Compose (Development Mode)...
+echo Starting Seen backend with Docker Compose (Development Mode)...
 echo Using docker-compose.custom.yml
+echo.
+
+REM Build frontend (Vite) so backend can serve dist assets
+echo Building frontend...
+pushd "%~dp0frontend" >nul
+if not exist "node_modules" (
+    echo Installing frontend dependencies...
+    call npm install
+    if errorlevel 1 (
+        echo Frontend npm install failed.
+        popd >nul
+        exit /b 1
+    )
+)
+call npm run build
+if errorlevel 1 (
+    echo Frontend build failed.
+    popd >nul
+    exit /b 1
+)
+popd >nul
+echo Frontend build complete.
 echo.
 
 REM Check if facial recognition feature is requested
@@ -51,8 +73,8 @@ if "%TOTAL_RAM_GB%"=="" (
 )
 
 REM Export as environment variables for docker-compose
-set NAZR_CPU_LIMIT=%CPU_LIMIT%.0
-set NAZR_MEMORY_LIMIT=%RAM_LIMIT_GB%G
+set SEEN_CPU_LIMIT=%CPU_LIMIT%.0
+set SEEN_MEMORY_LIMIT=%RAM_LIMIT_GB%G
 
 REM Detect NVIDIA GPU availability
 echo Detecting GPU capabilities...
@@ -61,17 +83,17 @@ for /f %%i in ('powershell -ExecutionPolicy Bypass -File "detect-nvidia-gpu.ps1"
 
 if "%HAS_NVIDIA_GPU%"=="1" (
     echo NVIDIA GPU detected - using CUDA-enabled Dockerfile
-    set NAZR_DOCKERFILE=Dockerfile.cuda
-    set NAZR_USE_GPU=1
+    set SEEN_DOCKERFILE=Dockerfile.cuda
+    set SEEN_USE_GPU=1
 ) else (
     echo No NVIDIA GPU detected - using standard Dockerfile
-    set NAZR_DOCKERFILE=Dockerfile
-    set NAZR_USE_GPU=0
+    set SEEN_DOCKERFILE=Dockerfile
+    set SEEN_USE_GPU=0
 )
 
 REM Create temporary docker-compose file with correct dockerfile
 echo Creating temporary docker-compose configuration...
-powershell -ExecutionPolicy Bypass -File "adjust-docker-compose.ps1" -Dockerfile "%NAZR_DOCKERFILE%" -UseGPU:%NAZR_USE_GPU% 2>nul
+powershell -ExecutionPolicy Bypass -File "adjust-docker-compose.ps1" -Dockerfile "%SEEN_DOCKERFILE%" -UseGPU:%SEEN_USE_GPU% 2>nul
 
 if not exist docker-compose.custom.tmp.yml (
     echo Warning: Failed to create temporary docker-compose file, using original
@@ -81,9 +103,9 @@ if not exist docker-compose.custom.tmp.yml (
 )
 
 echo Resource allocation:
-echo - CPU limit: %NAZR_CPU_LIMIT% cores (80%% of %TOTAL_CORES% available cores)
-echo - Memory limit: %NAZR_MEMORY_LIMIT% (75%% of available RAM, minimum 4 GB)
-echo - Dockerfile: %NAZR_DOCKERFILE%
+echo - CPU limit: %SEEN_CPU_LIMIT% cores (80%% of %TOTAL_CORES% available cores)
+echo - Memory limit: %SEEN_MEMORY_LIMIT% (75%% of available RAM, minimum 4 GB)
+echo - Dockerfile: %SEEN_DOCKERFILE%
 echo.
 echo This will:
 echo - Build the Docker image
@@ -92,7 +114,7 @@ if not "%CARGO_BUILD_FLAGS%"=="" (
 )
 echo - Start the service on port 8080
 echo - Mount your Pictures folder: %USERPROFILE%\Pictures
-echo - Store data in: .\nazr-data
+echo - Store data in: .\seen-data
 echo.
 
 REM CARGO_BUILD_FLAGS environment variable is automatically passed to docker compose

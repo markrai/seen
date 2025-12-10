@@ -1,5 +1,5 @@
 services:
-  nazr:
+  seen:
     # Use Dockerfile.cuda for CUDA-enabled ffmpeg (required for GPU acceleration)
     build:
       context: .
@@ -7,7 +7,7 @@ services:
       args:
         CARGO_BUILD_FLAGS: ${CARGO_BUILD_FLAGS:-}
         CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-}  # Optional: limit build jobs (defaults to all available cores)
-    container_name: nazr
+    container_name: seen
     environment:
       - FLASH_ROOT=/photos
       - FLASH_ROOT_HOST=${USERPROFILE}/Pictures
@@ -15,12 +15,13 @@ services:
       - FLASH_PORT=9161
       - RUST_LOG=debug
       - GPU_ACCEL=auto  # Auto-detect CUDA for RTX 4080 Super (or other GPU)
-      - NAZR_PROFILE_FLAMEGRAPH=1
+      - SEEN_PROFILE_FLAMEGRAPH=1
     volumes:
       # Uses the current user's Pictures folder
       # ${USERPROFILE} expands to C:\Users\YourUsername on Windows
       - ${USERPROFILE}/Pictures:/photos:rw
-      - ./nazr-data:/flash-data:rw
+      - ./seen-data:/flash-data:rw
+      - ./frontend:/app/frontend:ro
       # Mount specific directories for browsing (more secure than mounting entire drive)
       # Only mount the current user's directory, not all users
       - ${USERPROFILE}:/host/user:ro  # Read-only access to current user's directory only
@@ -33,8 +34,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${NAZR_CPU_LIMIT:-4.0}"  # 80% of available CPUs (default: 4.0 if not set)
-          memory: "${NAZR_MEMORY_LIMIT:-4G}"  # 75% of available RAM, minimum 4 GB (default: 4G if not set)
+          cpus: "${SEEN_CPU_LIMIT:-4.0}"  # 80% of available CPUs (default: 4.0 if not set)
+          memory: "${SEEN_MEMORY_LIMIT:-4G}"  # 75% of available RAM, minimum 4 GB (default: 4G if not set)
         reservations:
           devices:
             - driver: nvidia

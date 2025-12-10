@@ -228,11 +228,11 @@ impl Stats {
     }
     pub fn metrics_text(&self) -> String {
         let mut s = String::new();
-        s.push_str(&format!("nazr_uptime_seconds {}\n", self.uptime_secs()));
-        s.push_str(&format!("nazr_processed_files_total {}\n", self.files_total()));
-        s.push_str(&format!("nazr_processed_bytes_total {}\n", self.bytes_total()));
-        s.push_str(&format!("nazr_processed_files_per_second {}\n", self.files_per_sec()));
-        s.push_str(&format!("nazr_processed_bytes_per_second {}\n", self.bytes_per_sec()));
+        s.push_str(&format!("seen_uptime_seconds {}\n", self.uptime_secs()));
+        s.push_str(&format!("seen_processed_files_total {}\n", self.files_total()));
+        s.push_str(&format!("seen_processed_bytes_total {}\n", self.bytes_total()));
+        s.push_str(&format!("seen_processed_files_per_second {}\n", self.files_per_sec()));
+        s.push_str(&format!("seen_processed_bytes_per_second {}\n", self.bytes_per_sec()));
         s
     }
     

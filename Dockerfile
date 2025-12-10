@@ -22,9 +22,9 @@ ENV RUST_LOG=info
 # Note: libvips EXIF warnings are harmless - images still process correctly
 # These warnings occur when libvips encounters non-standard EXIF metadata
 # They can be filtered from logs if desired, but don't affect functionality
-COPY --from=builder /app/target/release/nazr-backend-sqlite /usr/local/bin/nazr-backend-sqlite
+COPY --from=builder /app/target/release/seen_backend /usr/local/bin/seen_backend
 EXPOSE 8080
-ENTRYPOINT ["nazr-backend-sqlite"]
+ENTRYPOINT ["seen_backend"]
 
 FROM rust:1-bookworm AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends libvips-dev ffmpeg pkg-config clang && rm -rf /var/lib/apt/lists/*
@@ -50,6 +50,6 @@ ENV RUST_LOG=info
 # Note: libvips EXIF warnings are harmless - images still process correctly
 # These warnings occur when libvips encounters non-standard EXIF metadata
 # They can be filtered from logs if desired, but don't affect functionality
-COPY --from=builder /app/target/release/nazr-backend-sqlite /usr/local/bin/nazr-backend-sqlite
+COPY --from=builder /app/target/release/seen_backend /usr/local/bin/seen_backend
 EXPOSE 8080
-ENTRYPOINT ["nazr-backend-sqlite"]
+ENTRYPOINT ["seen_backend"]

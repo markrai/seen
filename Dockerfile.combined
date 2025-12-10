@@ -1,0 +1,37 @@
+# Stage 1: Build the frontend (from in-repo `frontend/` directory)
+FROM node:20 AS frontend_builder
+WORKDIR /app/frontend
+COPY ./frontend/package*.json ./
+RUN npm ci
+COPY ./frontend/ ./
+RUN npm run build
+
+# Stage 2: Build the backend
+FROM rust:1-bookworm AS backend_builder
+RUN apt-get update && apt-get install -y --no-install-recommends libvips-dev ffmpeg pkg-config clang && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY . .
+# Use available CPU cores for parallel compilation
+ARG CARGO_BUILD_JOBS
+RUN if [ -z "$CARGO_BUILD_JOBS" ]; then \
+        export CARGO_BUILD_JOBS=$(nproc); \
+    else \
+        export CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS; \
+    fi && \
+    echo "Building with $CARGO_BUILD_JOBS parallel jobs" && \
+    cargo build --release -j $CARGO_BUILD_JOBS
+
+# Stage 3: Create the final combined image
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends libvips ffmpeg ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+ENV RUST_LOG=info
+
+# Copy the built frontend assets from the first stage
+COPY --from=frontend_builder /app/dist ./frontend/dist
+
+# Copy the built backend binary from the second stage
+COPY --from=backend_builder /app/target/release/seen_backend /usr/local/bin/seen_backend
+
+EXPOSE 8080
+ENTRYPOINT ["seen_backend"]

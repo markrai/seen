@@ -12,7 +12,7 @@ echo.
 echo To profile:
 echo 1. Windows: Use Superluminal (https://superluminal.eu/)
 echo 2. Or use Windows Performance Toolkit
-echo 3. Run: target\release\nazr.exe
+echo 3. Run: target\release\seen_backend.exe
 echo.
 echo For benchmarks:
 echo   cargo bench

@@ -194,7 +194,7 @@ pub async fn face_progress(State(state): State<Arc<AppState>>) -> impl axum::res
         Some((faces_total, persons_total, assets_with_faces))
     }).await.ok().flatten().unwrap_or((0, 0, 0));
 
-    let batch = std::env::var("NAZR_FACE_CLUSTER_BATCH").ok().and_then(|v| v.parse().ok()).unwrap_or(crate::pipeline::face::FACE_CLUSTER_BATCH_SIZE as i64);
+    let batch = std::env::var("SEEN_FACE_CLUSTER_BATCH").ok().and_then(|v| v.parse().ok()).unwrap_or(crate::pipeline::face::FACE_CLUSTER_BATCH_SIZE as i64);
     let remaining_to_next_cluster = if faces_total == 0 { batch } else { (batch - (faces_total % batch)) % batch };
 
     let status_msg = if !scrfd_loaded || !arcface_loaded {
@@ -551,11 +551,11 @@ pub async fn recluster_faces(State(state): State<Arc<AppState>>) -> impl axum::r
     }
 
     let embeds_only: Vec<crate::pipeline::face::FaceEmbedding> = embeddings.iter().map(|(_, e)| e.clone()).collect();
-    let min_cluster_size: usize = std::env::var("NAZR_FACE_HDBSCAN_MIN_CLUSTER_SIZE")
+    let min_cluster_size: usize = std::env::var("SEEN_FACE_HDBSCAN_MIN_CLUSTER_SIZE")
       .ok()
       .and_then(|v| v.parse().ok())
       .unwrap_or(3);
-    let min_samples: usize = std::env::var("NAZR_FACE_HDBSCAN_MIN_SAMPLES")
+    let min_samples: usize = std::env::var("SEEN_FACE_HDBSCAN_MIN_SAMPLES")
       .ok()
       .and_then(|v| v.parse().ok())
       .unwrap_or(2);
@@ -782,7 +782,7 @@ pub async fn smart_merge_persons(
 
     // Get merge threshold (query param > env var > default 0.50)
     let merge_threshold = params.threshold
-        .or_else(|| std::env::var("NAZR_FACE_SMART_MERGE_THRESHOLD").ok().and_then(|v| v.parse().ok()))
+        .or_else(|| std::env::var("SEEN_FACE_SMART_MERGE_THRESHOLD").ok().and_then(|v| v.parse().ok()))
         .unwrap_or(0.50);
 
     let result = tokio::task::spawn_blocking({
@@ -890,10 +890,10 @@ pub async fn trigger_clustering(
     // For backward compatibility, if min_samples is provided, use it for both
     // Otherwise, use separate env vars or defaults
     let min_cluster_size: usize = params.min_samples
-        .or_else(|| std::env::var("NAZR_FACE_HDBSCAN_MIN_CLUSTER_SIZE").ok().and_then(|v| v.parse().ok()))
+        .or_else(|| std::env::var("SEEN_FACE_HDBSCAN_MIN_CLUSTER_SIZE").ok().and_then(|v| v.parse().ok()))
         .unwrap_or(3);
     let min_samples: usize = params.min_samples
-        .or_else(|| std::env::var("NAZR_FACE_HDBSCAN_MIN_SAMPLES").ok().and_then(|v| v.parse().ok()))
+        .or_else(|| std::env::var("SEEN_FACE_HDBSCAN_MIN_SAMPLES").ok().and_then(|v| v.parse().ok()))
         .unwrap_or(2);
 
     let result = tokio::task::spawn_blocking({
@@ -1081,15 +1081,15 @@ pub struct FaceSettings {
 }
 
 pub async fn get_face_settings(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let confidence_threshold: f32 = std::env::var("NAZR_FACE_CONFIDENCE_THRESHOLD")
+    let confidence_threshold: f32 = std::env::var("SEEN_FACE_CONFIDENCE_THRESHOLD")
         .ok().and_then(|v| v.parse().ok()).unwrap_or(0.20);
-    let nms_iou_threshold: f32 = std::env::var("NAZR_FACE_NMS_IOU_THRESHOLD")
+    let nms_iou_threshold: f32 = std::env::var("SEEN_FACE_NMS_IOU_THRESHOLD")
         .ok().and_then(|v| v.parse().ok()).unwrap_or(0.4);
-    let cluster_epsilon: f32 = std::env::var("NAZR_FACE_CLUSTER_EPSILON")
+    let cluster_epsilon: f32 = std::env::var("SEEN_FACE_CLUSTER_EPSILON")
         .ok().and_then(|v| v.parse().ok()).unwrap_or(0.55);
-    let min_cluster_size: usize = std::env::var("NAZR_FACE_HDBSCAN_MIN_CLUSTER_SIZE")
+    let min_cluster_size: usize = std::env::var("SEEN_FACE_HDBSCAN_MIN_CLUSTER_SIZE")
         .ok().and_then(|v| v.parse().ok()).unwrap_or(3);
-    let min_samples: usize = std::env::var("NAZR_FACE_HDBSCAN_MIN_SAMPLES")
+    let min_samples: usize = std::env::var("SEEN_FACE_HDBSCAN_MIN_SAMPLES")
         .ok().and_then(|v| v.parse().ok()).unwrap_or(2);
 
     // Read excluded extensions from database
@@ -1119,19 +1119,19 @@ pub async fn get_face_settings(State(state): State<Arc<AppState>>) -> impl IntoR
 
 pub async fn update_face_settings(State(state): State<Arc<AppState>>, Json(payload): Json<FaceSettings>) -> impl IntoResponse {
     if let Some(v) = payload.confidence_threshold {
-        std::env::set_var("NAZR_FACE_CONFIDENCE_THRESHOLD", v.to_string());
+        std::env::set_var("SEEN_FACE_CONFIDENCE_THRESHOLD", v.to_string());
     }
     if let Some(v) = payload.nms_iou_threshold {
-        std::env::set_var("NAZR_FACE_NMS_IOU_THRESHOLD", v.to_string());
+        std::env::set_var("SEEN_FACE_NMS_IOU_THRESHOLD", v.to_string());
     }
     if let Some(v) = payload.cluster_epsilon {
-        std::env::set_var("NAZR_FACE_CLUSTER_EPSILON", v.to_string());
+        std::env::set_var("SEEN_FACE_CLUSTER_EPSILON", v.to_string());
     }
     if let Some(v) = payload.min_cluster_size {
-        std::env::set_var("NAZR_FACE_HDBSCAN_MIN_CLUSTER_SIZE", v.to_string());
+        std::env::set_var("SEEN_FACE_HDBSCAN_MIN_CLUSTER_SIZE", v.to_string());
     }
     if let Some(v) = payload.min_samples {
-        std::env::set_var("NAZR_FACE_HDBSCAN_MIN_SAMPLES", v.to_string());
+        std::env::set_var("SEEN_FACE_HDBSCAN_MIN_SAMPLES", v.to_string());
     }
 
     // Save excluded extensions to database

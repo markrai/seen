@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply bg-zinc-50 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100 antialiased;
+}
+
+/* Scrollbar styling */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { @apply bg-zinc-300 dark:bg-zinc-700 rounded; }
+*::-webkit-scrollbar-track { @apply bg-transparent; }
+
+/* Thin scrollbar for attribution sections */
+.scrollbar-thin::-webkit-scrollbar { width: 6px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { 
+  background-color: rgb(212 212 216);
+  border-radius: 9999px;
+}
+.dark .scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgb(63 63 70);
+}
+.scrollbar-thin::-webkit-scrollbar-track { 
+  background: transparent;
+}
+
+/* Utility for container widths */
+.container-responsive {
+  @apply max-w-7xl mx-auto px-3 sm:px-4 lg:px-6;
+}
+
+/* Yellowtail font for year headings */
+.font-mrs-sheppards {
+  font-family: 'Yellowtail', cursive;
+}
+
+/* Kalam font for menu items */
+.font-kalam-light {
+  font-family: 'Kalam', cursive;
+  font-weight: 300;
+}
+
+.font-kalam {
+  font-family: 'Kalam', cursive;
+  font-weight: 400;
+}
+
+.font-kalam-bold {
+  font-family: 'Kalam', cursive;
+  font-weight: 700;
+}
+
+/* Vibur font for dashboard stat values */
+.font-vibur {
+  font-family: 'Vibur', cursive;
+}
+
+/* Chilanka font for dashboard stat values */
+.font-chilanka {
+  font-family: 'Chilanka', cursive;
+}
+
+/* Playwrite Magyarorszag font for dashboard stat values */
+.font-playwrite-magyarorszag {
+  font-family: 'Playwrite Magyarorszag', cursive;
+}
+
+/* Slow pulse animation for detecting faces status */
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}
