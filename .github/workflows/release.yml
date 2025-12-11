@@ -27,9 +27,6 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             rust_target: x86_64-unknown-linux-gnu
-          - os: macos-13
-            target: x86_64-apple-darwin
-            rust_target: x86_64-apple-darwin
           - os: macos-latest
             target: aarch64-apple-darwin
             rust_target: aarch64-apple-darwin
@@ -85,15 +82,11 @@ jobs:
         shell: bash
         run: |
           set -e
-          # Set library paths for macOS (ARM uses /opt/homebrew, Intel uses /usr/local)
+          # Set library paths for macOS ARM (uses /opt/homebrew)
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig"
             export LIBRARY_PATH="/opt/homebrew/lib"
             export DYLD_LIBRARY_PATH="/opt/homebrew/lib"
-          elif [[ "${{ matrix.os }}" == "macos-13" ]]; then
-            export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig"
-            export LIBRARY_PATH="/usr/local/lib"
-            export DYLD_LIBRARY_PATH="/usr/local/lib"
           fi
 
           # Build backend with facial recognition on all platforms
