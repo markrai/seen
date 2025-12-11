@@ -35,6 +35,30 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/seen-backend-x86_64-pc-windows-msvc.exe",
+      "binaries/seen-backend-x86_64-unknown-linux-gnu",
+      "binaries/seen-backend-aarch64-apple-darwin"
     ]
+  },
+  "plugins": {
+    "shell": {
+      "sidecar": true,
+      "scope": [
+        {
+          "name": "binaries/seen-backend-x86_64-pc-windows-msvc.exe",
+          "sidecar": true
+        },
+        {
+          "name": "binaries/seen-backend-x86_64-unknown-linux-gnu",
+          "sidecar": true
+        },
+        {
+          "name": "binaries/seen-backend-aarch64-apple-darwin",
+          "sidecar": true
+        }
+      ]
+    }
   }
 }
