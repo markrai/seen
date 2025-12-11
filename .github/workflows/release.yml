@@ -16,16 +16,24 @@ env:
 
 jobs:
   build:
-    name: Build and Package
+    name: Build Tauri App
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust_target: x86_64-pc-windows-msvc
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            rust_target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            rust_target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            rust_target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
-    env:
-      CARGO_TERM_COLOR: always
-      FRONTEND_DIR: frontend
-      BACKEND_BIN: seen_backend
 
     steps:
       - name: Checkout code
@@ -36,24 +44,19 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install frontend dependencies
-        working-directory: ./frontend
-        run: npm ci
-
-      - name: Build frontend
-        working-directory: ./frontend
-        run: npm run build
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          targets: ${{ matrix.rust_target }}
 
       - name: Install system dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libvips-dev libglib2.0-dev pkg-config clang
+          sudo apt-get install -y --no-install-recommends \
+            libvips-dev libglib2.0-dev pkg-config clang \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install system dependencies (macOS)
         if: matrix.os == 'macos-latest'
@@ -70,11 +73,15 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-${{ matrix.rust_target }}-cargo-
 
-      - name: Build backend (with facial recognition)
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build backend binary
         shell: bash
         run: |
           set -e
@@ -83,84 +90,55 @@ jobs:
             export LIBRARY_PATH="/opt/homebrew/lib:/usr/local/lib"
             export DYLD_LIBRARY_PATH="/opt/homebrew/lib:/usr/local/lib"
           fi
-          cargo build --release --features facial-recognition
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cp target/release/${BACKEND_BIN}.exe target/release/${BACKEND_BIN}_with_face.exe
-          else
-            cp target/release/${BACKEND_BIN} target/release/${BACKEND_BIN}_with_face
-          fi
 
-      - name: Build backend (no facial recognition)
+          # Build backend with facial recognition on all platforms
+          # Windows uses image+webp crates instead of libvips for thumbnails (via cfg(target_env = "msvc"))
+          # but facial recognition (ort + ndarray) works on all platforms
+          cargo build --release --target ${{ matrix.rust_target }} --features facial-recognition
+
+      - name: Copy backend to Tauri binaries folder
         shell: bash
         run: |
-          set -e
-          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/usr/local/lib/pkgconfig"
-            export LIBRARY_PATH="/opt/homebrew/lib:/usr/local/lib"
-            export DYLD_LIBRARY_PATH="/opt/homebrew/lib:/usr/local/lib"
-          fi
-          cargo build --release --no-default-features
+          mkdir -p frontend/src-tauri/binaries
+
+          # Determine the sidecar binary name with target triple suffix
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cp target/release/${BACKEND_BIN}.exe target/release/${BACKEND_BIN}_noface.exe
+            cp target/${{ matrix.rust_target }}/release/seen_backend.exe \
+               frontend/src-tauri/binaries/seen-backend-${{ matrix.target }}.exe
           else
-            cp target/release/${BACKEND_BIN} target/release/${BACKEND_BIN}_noface
+            cp target/${{ matrix.rust_target }}/release/seen_backend \
+               frontend/src-tauri/binaries/seen-backend-${{ matrix.target }}
           fi
 
-      - name: Package artifacts
-        shell: bash
-        run: |
-          set -e
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="main-${GITHUB_SHA::8}"
-          fi
-          OUT_DIR="release-artifacts"
-          TEMP_DIR="${OUT_DIR}/temp"
-          mkdir -p "${TEMP_DIR}"
+          ls -la frontend/src-tauri/binaries/
 
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            BIN_WITH_FACE="target/release/${BACKEND_BIN}_with_face.exe"
-            BIN_NO_FACE="target/release/${BACKEND_BIN}_noface.exe"
-            cp "${BIN_WITH_FACE}" "${TEMP_DIR}/seen-backend-windows.exe"
-            cp "${BIN_NO_FACE}" "${TEMP_DIR}/seen-backend-windows-noface.exe"
-            cp -r frontend/dist "${TEMP_DIR}/dist"
-            powershell -Command "Compress-Archive -Path ${TEMP_DIR}\\seen-backend-windows.exe,${TEMP_DIR}\\seen-backend-windows-noface.exe,${TEMP_DIR}\\dist -DestinationPath ${OUT_DIR}\\seen-windows-${VERSION}.zip -Force"
-          else
-            BIN_WITH_FACE="target/release/${BACKEND_BIN}_with_face"
-            BIN_NO_FACE="target/release/${BACKEND_BIN}_noface"
-            cp "${BIN_WITH_FACE}" "${TEMP_DIR}/seen-backend-${{ matrix.os }}-with-face"
-            cp "${BIN_NO_FACE}" "${TEMP_DIR}/seen-backend-${{ matrix.os }}-noface"
-            cp -r frontend/dist "${TEMP_DIR}/dist"
-            tar -czf "${OUT_DIR}/seen-${{ matrix.os }}-${VERSION}.tar.gz" -C "${TEMP_DIR}" seen-backend-${{ matrix.os }}-with-face seen-backend-${{ matrix.os }}-noface dist
-          fi
-          
-          # Clean up temp directory
-          rm -rf "${TEMP_DIR}"
-          
-          # Generate checksums
-          cd "${OUT_DIR}"
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            powershell -Command "(Get-FileHash seen-windows-${VERSION}.zip -Algorithm SHA256).Hash | Out-File -Encoding ASCII seen-windows-${VERSION}.zip.sha256"
-          else
-            sha256sum seen-${{ matrix.os }}-${VERSION}.tar.gz > seen-${{ matrix.os }}-${VERSION}.tar.gz.sha256
-          fi
-          
-          # List files to verify
-          echo "Files in ${OUT_DIR}:"
-          ls -lh "${OUT_DIR}"
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: frontend
+          args: --target ${{ matrix.rust_target }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: seen-${{ matrix.os }}-${{ github.ref_name }}
-          path: release-artifacts/
+          name: seen-${{ matrix.target }}
+          path: |
+            frontend/src-tauri/target/${{ matrix.rust_target }}/release/bundle/**/*.exe
+            frontend/src-tauri/target/${{ matrix.rust_target }}/release/bundle/**/*.msi
+            frontend/src-tauri/target/${{ matrix.rust_target }}/release/bundle/**/*.dmg
+            frontend/src-tauri/target/${{ matrix.rust_target }}/release/bundle/**/*.app
+            frontend/src-tauri/target/${{ matrix.rust_target }}/release/bundle/**/*.AppImage
+            frontend/src-tauri/target/${{ matrix.rust_target }}/release/bundle/**/*.deb
           retention-days: 30
 
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: always()
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -169,30 +147,36 @@ jobs:
           merge-multiple: false
 
       - name: List downloaded artifacts
-        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           echo "Artifacts directory structure:"
-          find artifacts -type f | head -20
-          echo ""
-          echo "Looking for release files:"
-          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.sha256" \) || echo "No release files found"
+          find artifacts -type f | head -50
 
       - name: Prepare release files
-        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           mkdir -p release-files
-          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.sha256" \) -exec cp {} release-files/ \;
+          find artifacts -type f \( \
+            -name "*.exe" -o \
+            -name "*.msi" -o \
+            -name "*.dmg" -o \
+            -name "*.AppImage" -o \
+            -name "*.deb" \
+          \) -exec cp {} release-files/ \;
           echo "Release files prepared:"
           ls -lh release-files/ || echo "No files found in release-files/"
 
+      - name: Generate checksums
+        working-directory: release-files
+        run: |
+          for f in *; do
+            sha256sum "$f" > "$f.sha256"
+          done
+
       - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
           files: release-files/*
           draft: false
           prerelease: false
           token: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
-
