@@ -117,6 +117,7 @@ jobs:
           fi
           OUT_DIR="release-artifacts"
           TEMP_DIR="${OUT_DIR}/temp"
+          mkdir -p "${OUT_DIR}"
           mkdir -p "${TEMP_DIR}"
 
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
@@ -125,30 +126,39 @@ jobs:
             cp "${BIN_WITH_FACE}" "${TEMP_DIR}/seen-backend-windows.exe"
             cp "${BIN_NO_FACE}" "${TEMP_DIR}/seen-backend-windows-noface.exe"
             cp -r frontend/dist "${TEMP_DIR}/dist"
-            powershell -Command "Compress-Archive -Path ${TEMP_DIR}\\seen-backend-windows.exe,${TEMP_DIR}\\seen-backend-windows-noface.exe,${TEMP_DIR}\\dist -DestinationPath ${OUT_DIR}\\seen-windows-${VERSION}.zip -Force"
+            ZIP_FILE="${OUT_DIR}/seen-windows-${VERSION}.zip"
+            powershell -Command "Compress-Archive -Path '${TEMP_DIR}\\*' -DestinationPath '${ZIP_FILE}' -Force"
+            if [[ ! -f "${ZIP_FILE}" ]]; then
+              echo "Error: Failed to create zip file"
+              exit 1
+            fi
           else
             BIN_WITH_FACE="target/release/${BACKEND_BIN}_with_face"
             BIN_NO_FACE="target/release/${BACKEND_BIN}_noface"
             cp "${BIN_WITH_FACE}" "${TEMP_DIR}/seen-backend-${{ matrix.os }}-with-face"
             cp "${BIN_NO_FACE}" "${TEMP_DIR}/seen-backend-${{ matrix.os }}-noface"
             cp -r frontend/dist "${TEMP_DIR}/dist"
-            tar -czf "${OUT_DIR}/seen-${{ matrix.os }}-${VERSION}.tar.gz" -C "${TEMP_DIR}" seen-backend-${{ matrix.os }}-with-face seen-backend-${{ matrix.os }}-noface dist
+            TAR_FILE="${OUT_DIR}/seen-${{ matrix.os }}-${VERSION}.tar.gz"
+            tar -czf "${TAR_FILE}" -C "${TEMP_DIR}" seen-backend-${{ matrix.os }}-with-face seen-backend-${{ matrix.os }}-noface dist
+            if [[ ! -f "${TAR_FILE}" ]]; then
+              echo "Error: Failed to create tar.gz file"
+              exit 1
+            fi
           fi
           
           # Clean up temp directory
           rm -rf "${TEMP_DIR}"
           
           # Generate checksums
-          cd "${OUT_DIR}"
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            powershell -Command "(Get-FileHash seen-windows-${VERSION}.zip -Algorithm SHA256).Hash | Out-File -Encoding ASCII seen-windows-${VERSION}.zip.sha256"
+            powershell -Command "(Get-FileHash '${ZIP_FILE}' -Algorithm SHA256).Hash | Out-File -Encoding ASCII '${ZIP_FILE}.sha256'"
           else
-            sha256sum seen-${{ matrix.os }}-${VERSION}.tar.gz > seen-${{ matrix.os }}-${VERSION}.tar.gz.sha256
+            sha256sum "${TAR_FILE}" > "${TAR_FILE}.sha256"
           fi
           
           # List files to verify
           echo "Files in ${OUT_DIR}:"
-          ls -lh "${OUT_DIR}"
+          ls -lh "${OUT_DIR}" || echo "Directory ${OUT_DIR} does not exist"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
