@@ -27,7 +27,7 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             rust_target: x86_64-unknown-linux-gnu
-          - os: macos-latest
+          - os: macos-13
             target: x86_64-apple-darwin
             rust_target: x86_64-apple-darwin
           - os: macos-latest
@@ -59,7 +59,7 @@ jobs:
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install system dependencies (macOS)
-        if: matrix.os == 'macos-latest'
+        if: startsWith(matrix.os, 'macos')
         run: |
           brew install vips glib pkg-config
         env:
@@ -85,10 +85,15 @@ jobs:
         shell: bash
         run: |
           set -e
+          # Set library paths for macOS (ARM uses /opt/homebrew, Intel uses /usr/local)
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/usr/local/lib/pkgconfig"
-            export LIBRARY_PATH="/opt/homebrew/lib:/usr/local/lib"
-            export DYLD_LIBRARY_PATH="/opt/homebrew/lib:/usr/local/lib"
+            export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig"
+            export LIBRARY_PATH="/opt/homebrew/lib"
+            export DYLD_LIBRARY_PATH="/opt/homebrew/lib"
+          elif [[ "${{ matrix.os }}" == "macos-13" ]]; then
+            export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig"
+            export LIBRARY_PATH="/usr/local/lib"
+            export DYLD_LIBRARY_PATH="/usr/local/lib"
           fi
 
           # Build backend with facial recognition on all platforms
