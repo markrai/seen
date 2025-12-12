@@ -112,7 +112,7 @@ echo - Build the Docker image
 if not "%CARGO_BUILD_FLAGS%"=="" (
     echo - With features: %CARGO_BUILD_FLAGS%
 )
-echo - Start the service on port 8080
+echo - Start the service on port 9161
 echo - Mount your Pictures folder: %USERPROFILE%\Pictures
 echo - Store data in: .\seen-data
 echo.

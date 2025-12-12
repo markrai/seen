@@ -113,12 +113,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       queryClient.invalidateQueries({ queryKey: ['performance'] });
       // Clear persisted dashboard values from localStorage
       try {
-        localStorage.removeItem('nazr_last_scan');
-        localStorage.removeItem('nazr_last_processing');
+        localStorage.removeItem('seen_last_scan');
+        localStorage.removeItem('seen_last_processing');
       } catch (e) {
         // Ignore localStorage errors
       }
-      window.dispatchEvent(new CustomEvent('nazr:reset-dashboard-stats'));
+      window.dispatchEvent(new CustomEvent('seen:reset-dashboard-stats'));
       // Reset success state after 3 seconds
       setTimeout(() => {
         setResetSuccess(false);

@@ -1,6 +1,7 @@
 services:
   seen:
     # Use Dockerfile.cuda for CUDA-enabled ffmpeg (required for GPU acceleration)
+    image: seen-backend:latest
     build:
       context: .
       dockerfile: Dockerfile.cuda

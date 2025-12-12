@@ -76,11 +76,11 @@ export default function Performance() {
   // Store last active values when processing, use them when idle
   useEffect(() => {
     if (perf && stats) {
-      if (perf.nazr.is_active && stats.processed.files_per_sec > 0) {
+      if (perf.seen.is_active && stats.processed.files_per_sec > 0) {
         setLastActive({
           filesPerSec: stats.processed.files_per_sec,
           mbPerSec: stats.processed.mb_per_sec || 0,
-          status: perf.nazr.status,
+          status: perf.seen.status,
         });
       }
       if (perf.current_scan) {
@@ -114,9 +114,9 @@ export default function Performance() {
     );
   }
 
-  const isActive = perf.nazr.is_active;
-  const currentRate = perf.nazr.current_rate;
-  const currentStatus = perf.nazr.status;
+  const isActive = perf.seen.is_active;
+  const currentRate = perf.seen.current_rate;
+  const currentStatus = perf.seen.status;
 
   // Use last active values when idle
   const displayFilesPerSec = isActive
@@ -145,8 +145,8 @@ export default function Performance() {
       name: 'Seen (You)',
       rate: isActive ? currentRate : 0,
       display: isActive ? currentRate.toFixed(2) : '0.00',
-      note: perf.nazr.status,
-      isNazr: true,
+      note: perf.seen.status,
+      isSeen: true,
     },
     ...(typeof perf.typical_ranges === 'object' && perf.typical_ranges !== null && !Array.isArray(perf.typical_ranges)
       ? Object.entries(perf.typical_ranges).map(([name, data]) => ({
@@ -157,7 +157,7 @@ export default function Performance() {
           rate: parseRange(data.files_per_sec),
           display: data.files_per_sec,
           note: data.note,
-          isNazr: false,
+          isSeen: false,
         }))
       : []),
   ].sort((a, b) => b.rate - a.rate);
@@ -377,13 +377,13 @@ export default function Performance() {
                 <tr
                   key={idx}
                   className={`border-b border-zinc-200 dark:border-zinc-800 ${
-                    entry.isNazr ? 'bg-blue-50 dark:bg-blue-900/20 font-semibold' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                    entry.isSeen ? 'bg-blue-50 dark:bg-blue-900/20 font-semibold' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'
                   }`}
                 >
                   <td className="p-2 sm:p-3 text-xs sm:text-sm">{entry.name}</td>
                   <td className="p-2 sm:p-3 text-xs sm:text-sm">{entry.display}</td>
                   <td className="p-2 sm:p-3 text-xs sm:text-sm">
-                    {entry.isNazr ? (
+                    {entry.isSeen ? (
                       <>
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusClass(entry.note)}`}

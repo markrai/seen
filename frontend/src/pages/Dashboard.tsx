@@ -105,8 +105,8 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['performance'] });
       // Clear persisted dashboard values from localStorage
       try {
-        localStorage.removeItem('nazr_last_scan');
-        localStorage.removeItem('nazr_last_processing');
+        localStorage.removeItem('seen_last_scan');
+        localStorage.removeItem('seen_last_processing');
         setLastScan(null);
         setLastProcessing(null);
       } catch (e) {
@@ -154,13 +154,13 @@ export default function Dashboard() {
   // Load persisted values from localStorage on mount
   useEffect(() => {
     try {
-      const savedLastScan = localStorage.getItem('nazr_last_scan');
+      const savedLastScan = localStorage.getItem('seen_last_scan');
       if (savedLastScan) {
         const parsed = JSON.parse(savedLastScan);
         setLastScan(parsed);
         lastScanRef.current = parsed;
       }
-      const savedLastProcessing = localStorage.getItem('nazr_last_processing');
+      const savedLastProcessing = localStorage.getItem('seen_last_processing');
       if (savedLastProcessing) {
         const parsed = JSON.parse(savedLastProcessing);
         setLastProcessing(parsed);
@@ -252,8 +252,8 @@ export default function Dashboard() {
         processingActivityTimeoutRef.current = null;
       }
     };
-    window.addEventListener('nazr:reset-dashboard-stats', handleStatsReset);
-    return () => window.removeEventListener('nazr:reset-dashboard-stats', handleStatsReset);
+    window.addEventListener('seen:reset-dashboard-stats', handleStatsReset);
+    return () => window.removeEventListener('seen:reset-dashboard-stats', handleStatsReset);
   }, []);
   
   const debouncedLocalStorageWrite = useCallback((key: 'scan' | 'processing', value: any) => {
@@ -266,9 +266,9 @@ export default function Dashboard() {
     localStorageDebounceTimeoutRef.current[key] = setTimeout(() => {
       try {
         if (key === 'scan') {
-          localStorage.setItem('nazr_last_scan', JSON.stringify(value));
+          localStorage.setItem('seen_last_scan', JSON.stringify(value));
         } else {
-          localStorage.setItem('nazr_last_processing', JSON.stringify(value));
+          localStorage.setItem('seen_last_processing', JSON.stringify(value));
         }
       } catch (e) {
         // Ignore localStorage errors
@@ -341,7 +341,7 @@ export default function Dashboard() {
   
   useEffect(() => {
     if (!perf || !stats) return;
-    const nazrStatus = perf.nazr?.status ?? 'completed';
+    const seenStatus = perf.seen?.status ?? 'completed';
     const isProcessing = backendProcessingActive;
     
     // Only update lastActive when scan is actually running (not just when queued items exist)
@@ -349,7 +349,7 @@ export default function Dashboard() {
       setLastActive({
         filesPerSec: stats.processed.files_per_sec,
         mbPerSec: stats.processed.mb_per_sec || 0,
-        status: nazrStatus,
+        status: seenStatus,
       });
     }
     
@@ -360,7 +360,7 @@ export default function Dashboard() {
         photos: perf.current_scan.photos_processed,
         videos: perf.current_scan.videos_processed,
         rate: perf.current_scan.files_per_sec,
-        status: perf.current_scan.status ?? nazrStatus,
+        status: perf.current_scan.status ?? seenStatus,
         elapsed: perf.current_scan.elapsed_seconds,
       };
       setLastScan(newLastScan);
@@ -372,7 +372,7 @@ export default function Dashboard() {
       const finalLastScan = lastScanRef.current
         ? {
             ...lastScanRef.current,
-            status: lastScanRef.current.status || nazrStatus,
+            status: lastScanRef.current.status || seenStatus,
             completedAt: lastScanRef.current.completedAt ?? Date.now(),
           }
         : null;
@@ -384,7 +384,7 @@ export default function Dashboard() {
             clearTimeout(localStorageDebounceTimeoutRef.current.scan);
             localStorageDebounceTimeoutRef.current.scan = null;
           }
-          localStorage.setItem('nazr_last_scan', JSON.stringify(finalLastScan));
+          localStorage.setItem('seen_last_scan', JSON.stringify(finalLastScan));
         } catch (e) {
           // Ignore localStorage errors
         }
@@ -417,7 +417,7 @@ export default function Dashboard() {
             clearTimeout(localStorageDebounceTimeoutRef.current.processing);
             localStorageDebounceTimeoutRef.current.processing = null;
           }
-          localStorage.setItem('nazr_last_processing', JSON.stringify(finalLastProcessing));
+          localStorage.setItem('seen_last_processing', JSON.stringify(finalLastProcessing));
         } catch (e) {
           // Ignore localStorage errors
         }

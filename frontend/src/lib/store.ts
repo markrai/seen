@@ -46,24 +46,24 @@ interface UIState {
   setAlbumTagBackgroundColor: (color: string) => void;
 }
 
-const THEME_KEY = 'nazr.theme';
-const GRID_KEY = 'nazr.gridSize';
-const DELETE_CONFIRM_KEY = 'nazr.showDeleteConfirmation';
-const DEFAULT_SCREEN_KEY = 'nazr.defaultScreen';
-const DASHBOARD_FONT_KEY = 'nazr.dashboardFontFamily';
-const DASHBOARD_FONT_SIZE_KEY = 'nazr.dashboardFontSize';
-const YEARS_MONTHS_FONT_KEY = 'nazr.yearsMonthsFontFamily';
-const YEARS_MONTHS_FONT_SIZE_KEY = 'nazr.yearsMonthsFontSize';
-const ALBUM_HEADING_FONT_KEY = 'nazr.albumHeadingFontFamily';
-const ALBUM_HEADING_FONT_SIZE_KEY = 'nazr.albumHeadingFontSize';
-const PLAYBACK_SPEED_KEY = 'nazr.playbackSpeed';
-const PRIORITIZE_FOLDER_STRUCTURE_KEY = 'nazr.prioritizeFolderStructure';
-const PRIORITIZE_FILENAME_DATE_KEY = 'nazr.prioritizeFilenameDate';
-const DELETE_ORIGINALS_KEY = 'nazr.deleteOriginalFiles';
-const SMART_MERGE_MODE_KEY = 'nazr.smartMergeMode';
-const SHOW_ALBUM_TAGS_KEY = 'nazr.showAlbumTags';
-const ALBUM_TAG_FONT_COLOR_KEY = 'nazr.albumTagFontColor';
-const ALBUM_TAG_BACKGROUND_COLOR_KEY = 'nazr.albumTagBackgroundColor';
+const THEME_KEY = 'seen.theme';
+const GRID_KEY = 'seen.gridSize';
+const DELETE_CONFIRM_KEY = 'seen.showDeleteConfirmation';
+const DEFAULT_SCREEN_KEY = 'seen.defaultScreen';
+const DASHBOARD_FONT_KEY = 'seen.dashboardFontFamily';
+const DASHBOARD_FONT_SIZE_KEY = 'seen.dashboardFontSize';
+const YEARS_MONTHS_FONT_KEY = 'seen.yearsMonthsFontFamily';
+const YEARS_MONTHS_FONT_SIZE_KEY = 'seen.yearsMonthsFontSize';
+const ALBUM_HEADING_FONT_KEY = 'seen.albumHeadingFontFamily';
+const ALBUM_HEADING_FONT_SIZE_KEY = 'seen.albumHeadingFontSize';
+const PLAYBACK_SPEED_KEY = 'seen.playbackSpeed';
+const PRIORITIZE_FOLDER_STRUCTURE_KEY = 'seen.prioritizeFolderStructure';
+const PRIORITIZE_FILENAME_DATE_KEY = 'seen.prioritizeFilenameDate';
+const DELETE_ORIGINALS_KEY = 'seen.deleteOriginalFiles';
+const SMART_MERGE_MODE_KEY = 'seen.smartMergeMode';
+const SHOW_ALBUM_TAGS_KEY = 'seen.showAlbumTags';
+const ALBUM_TAG_FONT_COLOR_KEY = 'seen.albumTagFontColor';
+const ALBUM_TAG_BACKGROUND_COLOR_KEY = 'seen.albumTagBackgroundColor';
 
 function sanitizeHexColor(color: string, fallback: string): string {
   if (!color) return fallback;

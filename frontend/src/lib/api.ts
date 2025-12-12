@@ -69,7 +69,7 @@ export const api = {
   fileTypes: () => request<FileTypesResponse>('/file-types'),
   performance: () =>
     request<{
-      nazr: {
+      seen: {
         files_per_sec: number;
         current_rate: number;
         mb_per_sec: number;
