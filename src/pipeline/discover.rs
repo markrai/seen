@@ -212,7 +212,7 @@ pub async fn scan_bfs(
       tx: Sender<DiscoverItem>,
       gauges: Arc<QueueGauges>,
       scan_running: Arc<std::sync::atomic::AtomicBool>,
-      _stats: Option<Arc<crate::stats::Stats>>,
+      stats: Option<Arc<crate::stats::Stats>>,
   ) -> Result<()> {
       use tracing::{info, warn, debug};
       let patterns = read_ignore(&root);
@@ -246,7 +246,12 @@ pub async fn scan_bfs(
                       // Only process image and video files
                       if item.mime.starts_with("image/") || item.mime.starts_with("video/") {
                           file_count += 1;
-                          info!("discovered file: {:?} (mime: {})", item.path, item.mime);
+                          // Increment discovery counter immediately when file is discovered
+                          // This gives accurate discovery rate in the frontend
+                          if let Some(ref s) = stats {
+                              s.inc_files(1);
+                          }
+                          debug!("discovered file: {:?} (mime: {})", item.path, item.mime);
                         let _ = tx.send(item).await;
                         gauges.discover.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     } else {

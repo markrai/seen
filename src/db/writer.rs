@@ -976,7 +976,7 @@ pub fn remove_scan_path(conn: &Connection, path: &str) -> Result<bool> {
 /// Delete all assets that start with the given path prefix
 pub fn delete_assets_by_path_prefix(conn: &Connection, path_prefix: &str) -> Result<(usize, usize)> {
     let tx = conn.unchecked_transaction()?;
-    
+
     // Normalize path prefix for directory matching across platforms.
     // Windows paths typically use `\`, but some callers may provide `/`.
     // We generate LIKE patterns for BOTH separators to ensure deletion works
@@ -1016,7 +1016,14 @@ pub fn delete_assets_by_path_prefix(conn: &Connection, path_prefix: &str) -> Res
     let like_prefix2 = prefixes.get(2).cloned().unwrap_or_else(|| like_prefix1.clone());
     let like_pattern1 = format!("{}%", escape_like(&like_prefix1));
     let like_pattern2 = format!("{}%", escape_like(&like_prefix2));
-    
+
+    tracing::debug!(
+        path_prefix = %path_prefix,
+        like_pattern1 = %like_pattern1,
+        like_pattern2 = %like_pattern2,
+        "delete_assets_by_path_prefix: generated patterns"
+    );
+
     // Get all asset IDs that match the path prefix (path starts with prefix or equals prefix)
     // Use ESCAPE to handle special characters in LIKE
     let asset_ids: Vec<i64> = {
@@ -1029,6 +1036,11 @@ pub fn delete_assets_by_path_prefix(conn: &Connection, path_prefix: &str) -> Res
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     };
+
+    tracing::debug!(
+        asset_count = asset_ids.len(),
+        "delete_assets_by_path_prefix: found assets to delete"
+    );
     
     #[cfg(feature = "facial-recognition")]
     let faces_deleted = {
@@ -1177,4 +1189,121 @@ pub fn remove_assets_from_album(conn: &Connection, album_id: i64, asset_ids: &[i
     
     tx.commit()?;
     Ok(removed)
+}
+
+#[cfg(test)]
+mod path_deletion_tests {
+    use super::*;
+    use crate::db::schema;
+
+    fn setup_test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        schema::apply_schema(&conn).unwrap();
+        conn
+    }
+
+    fn insert_test_asset(conn: &Connection, path: &str) {
+        conn.execute(
+            "INSERT INTO assets (path, dirname, filename, ext, size_bytes, mtime_ns, ctime_ns, mime, flags)
+             VALUES (?1, ?2, ?3, ?4, 1000, 0, 0, 'image/jpeg', 0)",
+            params![
+                path,
+                std::path::Path::new(path).parent().and_then(|p| p.to_str()).unwrap_or(""),
+                std::path::Path::new(path).file_name().and_then(|f| f.to_str()).unwrap_or(""),
+                std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("")
+            ],
+        ).unwrap();
+    }
+
+    #[test]
+    fn test_delete_assets_with_forward_slash_paths() {
+        let conn = setup_test_db();
+
+        // Insert assets with forward slash paths (Unix-style)
+        insert_test_asset(&conn, "/photos/vacation/img1.jpg");
+        insert_test_asset(&conn, "/photos/vacation/img2.jpg");
+        insert_test_asset(&conn, "/photos/work/img3.jpg");
+
+        // Verify all assets exist
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM assets", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 3);
+
+        // Delete assets under /photos/vacation
+        let (deleted, _) = delete_assets_by_path_prefix(&conn, "/photos/vacation").unwrap();
+        assert_eq!(deleted, 2);
+
+        // Verify only work photo remains
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM assets", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1);
+
+        let remaining: String = conn.query_row("SELECT path FROM assets", [], |r| r.get(0)).unwrap();
+        assert_eq!(remaining, "/photos/work/img3.jpg");
+    }
+
+    #[test]
+    fn test_delete_assets_with_backslash_paths() {
+        let conn = setup_test_db();
+
+        // Insert assets with backslash paths (Windows-style)
+        insert_test_asset(&conn, r"C:\Users\Photos\vacation\img1.jpg");
+        insert_test_asset(&conn, r"C:\Users\Photos\vacation\img2.jpg");
+        insert_test_asset(&conn, r"C:\Users\Photos\work\img3.jpg");
+
+        // Verify all assets exist
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM assets", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 3);
+
+        // Delete assets under C:\Users\Photos\vacation
+        let (deleted, _) = delete_assets_by_path_prefix(&conn, r"C:\Users\Photos\vacation").unwrap();
+        assert_eq!(deleted, 2);
+
+        // Verify only work photo remains
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM assets", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1);
+
+        let remaining: String = conn.query_row("SELECT path FROM assets", [], |r| r.get(0)).unwrap();
+        assert_eq!(remaining, r"C:\Users\Photos\work\img3.jpg");
+    }
+
+    #[test]
+    fn test_delete_assets_with_trailing_separator() {
+        let conn = setup_test_db();
+
+        // Insert assets with backslash paths
+        insert_test_asset(&conn, r"D:\Media\photos\img1.jpg");
+        insert_test_asset(&conn, r"D:\Media\photos\img2.jpg");
+
+        // Delete with trailing backslash
+        let (deleted, _) = delete_assets_by_path_prefix(&conn, r"D:\Media\photos\").unwrap();
+        assert_eq!(deleted, 2);
+
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM assets", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_delete_no_match() {
+        let conn = setup_test_db();
+
+        insert_test_asset(&conn, r"C:\Users\Photos\img1.jpg");
+
+        // Try to delete from non-existent path
+        let (deleted, _) = delete_assets_by_path_prefix(&conn, r"D:\Other\path").unwrap();
+        assert_eq!(deleted, 0);
+
+        // Original asset should still exist
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM assets", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_delete_exact_path_match() {
+        let conn = setup_test_db();
+
+        // This edge case: path prefix IS a complete file path
+        insert_test_asset(&conn, r"C:\single\file.jpg");
+
+        let (deleted, _) = delete_assets_by_path_prefix(&conn, r"C:\single\file.jpg").unwrap();
+        assert_eq!(deleted, 1);
+    }
 }

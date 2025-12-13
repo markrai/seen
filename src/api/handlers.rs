@@ -893,6 +893,8 @@ pub struct RemovePathQuery {
 pub async fn remove_scan_path(State(state): State<Arc<AppState>>, Query(params): Query<RemovePathQuery>) -> impl IntoResponse {
     let path_to_remove = params.path.clone();
 
+    tracing::info!(path = %path_to_remove, "remove_scan_path: received request to remove path");
+
     // Stop scanning and pause watcher for this path
     {
         if let Some(scan_running) = state.path_scan_running.lock().get(&path_to_remove) {
