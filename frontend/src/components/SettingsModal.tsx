@@ -740,7 +740,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             <div 
                               className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-10 dark:opacity-100"
                               style={{
-                                backgroundImage: 'url(/seen.png)',
+                                backgroundImage: 'url(/logo.png)',
                                 backgroundRepeat: 'no-repeat',
                                 backgroundPosition: 'center top',
                                 backgroundSize: '80%',

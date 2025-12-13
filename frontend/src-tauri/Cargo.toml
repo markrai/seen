@@ -1,6 +1,6 @@
 [package]
 name = "seen-frontend"
-version = "0.8.0"
+version = "0.9.1"
 description = "Seen - Media Management Frontend"
 authors = ["Seen Team"]
 license = ""

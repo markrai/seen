@@ -6,6 +6,14 @@ cd /d "%~dp0"
 set ROOT_DIR=%~dp0
 set FRONTEND_DIR=%~dp0frontend
 
+REM Hardening:
+REM - TAURI_CONFIG is a JSON override string (NOT a config file path). Clear it to avoid stale global values after repo renames.
+set "TAURI_CONFIG="
+REM - Repo renames can leave stale absolute paths inside compiled build artifacts; clean Tauri's Rust target output.
+if exist "%FRONTEND_DIR%\src-tauri\target" (
+  rmdir /s /q "%FRONTEND_DIR%\src-tauri\target"
+)
+
 echo Building Seen Tauri Application (Windows)...
 echo This will build the backend, frontend, and create a standalone Windows executable.
 echo.
@@ -123,7 +131,7 @@ echo The Windows executable is located at:
 echo   %FRONTEND_DIR%\src-tauri\target\release\seen-frontend.exe
 echo.
 echo You can also find an installer at:
-echo   %FRONTEND_DIR%\src-tauri\target\release\bundle\nsis\seen-frontend_0.8.0_x64-setup.exe
+echo   %FRONTEND_DIR%\src-tauri\target\release\bundle\nsis\Seen_0.9.1_x64-setup.exe
 echo.
 echo Note: The backend is bundled as a sidecar and will start automatically with the Tauri app.
 echo.
