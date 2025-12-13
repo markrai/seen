@@ -359,21 +359,24 @@ export default function Dashboard() {
       });
     }
     
-    // Only capture scan values when scan is actually running
-    if (backendScanRunning && perf.current_scan) {
+    // Persist scan values as long as current_scan exists.
+    // In Docker, scan_running can flip false before we lose current_scan, which otherwise causes "0 @ X files/sec".
+    const scanInProgress = !!stats.current_scan || !!perf.current_scan;
+    const cs = stats.current_scan ?? perf.current_scan;
+    if (scanInProgress && cs) {
       const newLastScan = {
-        files: perf.current_scan.files_processed,
-        photos: perf.current_scan.photos_processed,
-        videos: perf.current_scan.videos_processed,
-        rate: perf.current_scan.files_per_sec,
-        status: perf.current_scan.status ?? seenStatus,
-        elapsed: perf.current_scan.elapsed_seconds,
+        files: cs.files_discovered ?? cs.files_processed ?? 0,
+        photos: cs.photos_processed,
+        videos: cs.videos_processed,
+        rate: cs.files_per_sec ?? lastScanRef.current?.rate ?? 0,
+        status: cs.status ?? seenStatus,
+        elapsed: cs.elapsed_seconds ?? lastScanRef.current?.elapsed ?? 0,
       };
       setLastScan(newLastScan);
       lastScanRef.current = newLastScan;
       prevScanActiveRef.current = true;
       debouncedLocalStorageWrite('scan', newLastScan);
-    } else if (prevScanActiveRef.current && !backendScanRunning) {
+    } else if (prevScanActiveRef.current && !scanInProgress) {
       prevScanActiveRef.current = false;
       const finalLastScan = lastScanRef.current
         ? {
