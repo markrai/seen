@@ -8,15 +8,13 @@
 
 ## Why?
 
-*Pure speed*. Seen is built on Rust, which provides us with a significant advantage in raw performance, memory safety, and concurrency for I/O and CPU-heavy tasks. It's light weight, which means faster deployments.
+*Pure speed*. Seen is built on Rust, which provides us with a significant advantage in raw performance, memory safety, and concurrency for I/O and CPU-heavy tasks.
 
 *Customization*. Most media management apps are opinionated, by design. Which organization strategy should the app follow: Metadata over folder structure? Should a *delete* only remove from the gallery, or the file system? We want to put these choices *in your hands*, offering sensible "set it, and forget it" preferences. 
 
 *Superior Organization*. Life is way too short to be spending on editing metatags, renaming countless files, and coming up with complicated folder structures. Why not let the software do the heavy lifting, and simply *enjoy* your photos.
 
-*Choice.* For single-user simplicity, the **SQLite** backend steps away from a microservice architecture, to a self-contained binary. The ingestion pipeline is clear and modular for future extensibility. For even more scalability, there is also a **PostgreSQL** version.
-
-*Decoupled architecture.* The backend deploys separately from the frontend, and is client agnostic. You can even create your own, and it will work with Seen's backend.
+*Simplicity* For single-user simplicity, the **SQLite** backend steps away from a microservice architecture, to a self-contained binary. The ingestion pipeline is clear and modular for future extensibility.
 
 *Quirky - in all the good ways.* A search box which accepts wildcards. Advanced filters to specifically search for WhatsApp or Google Pixel media. Extract audio from video. Ability to transcode older video formats such as MPG, 3GP, WMV,  AVI, etc. Image burst capture of video.
 
