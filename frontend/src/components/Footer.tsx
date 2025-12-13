@@ -27,7 +27,7 @@ export default function Footer() {
               Uptime: <span className="tabular-nums">{data ? secondsToHms(data.uptime_seconds) : '—'}</span>
             </div>
             <div>
-              Total assets: <span className="tabular-nums">{data ? formatNumber(data.db.assets) : '—'}</span>
+              Total assets: <span className="tabular-nums">{data ? formatNumber(data.db?.assets ?? 0) : '—'}</span>
             </div>
             <div>
               Queues: disc {data?.queues.discover ?? '—'}, hash {data?.queues.hash ?? '—'}, meta {data?.queues.metadata ?? '—'},

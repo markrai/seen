@@ -1,9 +1,14 @@
+import { isTauriRuntime } from './runtime';
+
 export const API_BASE_URL: string =
   (import.meta.env?.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
-  // Default to same-origin backend API when served together with the backend
-  (typeof window !== 'undefined'
-    ? `${window.location.origin.replace(/\/$/, '')}/api`
-    : 'http://localhost:9161/api');
+  // In Tauri, backend runs as sidecar on localhost:9161
+  // In web mode, use same-origin if served with backend, otherwise localhost:9161
+  (isTauriRuntime()
+    ? 'http://localhost:9161/api'
+    : (typeof window !== 'undefined'
+      ? `${window.location.origin.replace(/\/$/, '')}/api`
+      : 'http://localhost:9161/api'));
 
 export const APP_NAME = 'Seen';
 export const DEFAULT_PAGE_SIZE = 200;

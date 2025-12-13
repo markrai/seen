@@ -1,4 +1,5 @@
 import { API_BASE_URL, DEFAULT_PAGE_SIZE } from './config';
+import { normalizePerformance, normalizeStats, type PerformanceResponse } from './normalize';
 import type {
   Asset,
   Paginated,
@@ -23,6 +24,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     const res = await fetch(withBase(path), {
       headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+      // WebView2 can be aggressive with caching even when the server is dynamic.
+      // For API JSON requests we want freshness (stats, assets, paths, etc.).
+      // Callers can override by passing `cache` in init.
+      cache: init?.cache ?? 'no-store',
       ...init,
       signal: init?.signal || controller?.signal,
     });
@@ -65,42 +70,10 @@ export const api = {
 
   // Health and stats
   health: () => request<{ status: string; version: string; database: string; backend_libraries: string[] }>('/health'),
-  stats: () => request<Stats>('/stats'),
+  stats: async () => normalizeStats(await request<any>('/stats')),
   fileTypes: () => request<FileTypesResponse>('/file-types'),
-  performance: () =>
-    request<{
-      seen: {
-        files_per_sec: number;
-        current_rate: number;
-        mb_per_sec: number;
-        status: string;
-        is_active: boolean;
-      };
-      system_info: {
-        cpu_cores: number;
-        cpu_brand: string;
-        accel: string;
-        note: string;
-      };
-      gpu_usage: {
-        enabled: boolean;
-        accel: string;
-        jobs_gpu: number;
-        jobs_cpu: number;
-        consecutive_failures: number;
-        auto_disabled: boolean;
-      };
-      typical_ranges: Record<string, { files_per_sec: string; note: string }>;
-      current_scan?: {
-        files_processed: number;
-        files_per_sec: number;
-        elapsed_seconds: number;
-        status: string;
-        photos_processed?: number;
-        videos_processed?: number;
-      };
-      notes: string[];
-    }>('/performance'),
+  performance: async (): Promise<PerformanceResponse> =>
+    normalizePerformance(await request<any>('/performance')),
 
   // Assets
   assets: (params: {
@@ -144,8 +117,17 @@ export const api = {
     return request<SearchResult>(u.toString());
   },
 
-  getScanPaths: () =>
-    request<Array<{ path: string; is_default: boolean; host_path?: string | null }>>('/paths'),
+  getScanPaths: async () => {
+    // Backend is expected to return an array, but be defensive:
+    // - some older builds returned { paths: [...] }
+    // - some reverse proxies might wrap payloads
+    const res = await request<any>('/paths');
+    if (Array.isArray(res)) return res as Array<{ path: string; is_default: boolean; host_path?: string | null }>;
+    if (res && typeof res === 'object' && Array.isArray((res as any).paths)) {
+      return (res as any).paths as Array<{ path: string; is_default: boolean; host_path?: string | null }>;
+    }
+    return [];
+  },
   addScanPath: (path: string) =>
     request<{ success: boolean; message: string }>('/paths', {
       method: 'POST',
@@ -177,7 +159,21 @@ export const api = {
   },
   browseDirectory: (path?: string) => {
     const url = path ? `/browse?path=${encodeURIComponent(path)}` : '/browse';
-    return request<{ path: string; entries: Array<{ name: string; path: string; is_dir: boolean }> }>(url);
+    return request<any>(url).then((res) => {
+      // Be defensive: if a proxy strips JSON content-type, `request()` may return a Blob.
+      // Also guard against unexpected shapes.
+      if (!res || typeof res !== 'object' || Array.isArray(res)) {
+        return { path: path ?? '/', entries: [] as Array<{ name: string; path: string; is_dir: boolean }> };
+      }
+      const entries = Array.isArray((res as any).entries) ? (res as any).entries : [];
+      const safeEntries = entries.filter((e: any) =>
+        e && typeof e === 'object' && typeof e.name === 'string' && typeof e.path === 'string'
+      );
+      return {
+        path: typeof (res as any).path === 'string' ? (res as any).path : (path ?? '/'),
+        entries: safeEntries as Array<{ name: string; path: string; is_dir: boolean }>,
+      };
+    });
   },
   clearAllData: () =>
     request<{ success: boolean; assets_deleted: number; faces_deleted: number; persons_deleted: number; message: string }>(

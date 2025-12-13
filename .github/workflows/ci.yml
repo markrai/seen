@@ -59,6 +59,60 @@ jobs:
       - name: Run tests (without facial recognition)
         run: cargo test --no-default-features
 
+  docker-smoke:
+    name: Docker Smoke (web bundle + backend serve)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build frontend (Docker/web settings)
+        working-directory: ./frontend
+        run: |
+          npm ci
+          VITE_ENABLE_FILE_BROWSER=1 npm run build
+
+      - name: Prepare dirs
+        run: |
+          mkdir -p photos seen-data
+
+      - name: Docker compose up (smoke)
+        run: |
+          docker compose -f docker-compose.smoke.yml up -d --build
+
+      - name: Wait for /api/health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in {1..60}; do
+            if curl -fsS "http://localhost:9161/api/health" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Timed out waiting for backend"
+          docker compose -f docker-compose.smoke.yml logs --no-color
+          exit 1
+
+      - name: Check endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "http://localhost:9161/api/health" | head -c 300
+          echo
+          curl -fsS "http://localhost:9161/" | head -c 300
+          echo
+
+      - name: Docker compose down
+        if: always()
+        run: |
+          docker compose -f docker-compose.smoke.yml down -v --remove-orphans
+
             # - name: Check formatting
             #   run: cargo fmt --all -- --check
 

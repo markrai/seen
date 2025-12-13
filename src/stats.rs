@@ -10,6 +10,8 @@ pub struct Stats {
     last_processing_start: parking_lot::Mutex<Option<Instant>>,
     last_scan_files: AtomicU64,
     last_scan_committed_files: AtomicU64,
+    last_completed_scan_files: AtomicU64,
+    last_completed_scan_elapsed: parking_lot::Mutex<Option<f64>>,
     last_completed_scan_rate: parking_lot::Mutex<Option<f64>>,
     last_completed_scan_mb_per_sec: parking_lot::Mutex<Option<f64>>,
     last_completed_processing_rate: parking_lot::Mutex<Option<f64>>,
@@ -34,6 +36,8 @@ impl Stats {
             last_processing_start: parking_lot::Mutex::new(None),
             last_scan_files: AtomicU64::new(0),
             last_scan_committed_files: AtomicU64::new(0),
+            last_completed_scan_files: AtomicU64::new(0),
+            last_completed_scan_elapsed: parking_lot::Mutex::new(None),
             last_completed_scan_rate: parking_lot::Mutex::new(None),
             last_completed_scan_mb_per_sec: parking_lot::Mutex::new(None),
             last_completed_processing_rate: parking_lot::Mutex::new(None),
@@ -135,6 +139,10 @@ impl Stats {
         };
         let elapsed = start.elapsed().as_secs_f64();
         let files_processed = self.files_total.load(Ordering::Relaxed).saturating_sub(self.last_scan_files.load(Ordering::Relaxed));
+
+        // Store last completed scan totals for UI display when idle
+        self.last_completed_scan_files.store(files_processed, Ordering::Relaxed);
+        *self.last_completed_scan_elapsed.lock() = Some(elapsed);
         
         // Calculate rate at the moment of completion (before it decays)
         if files_processed > 0 && elapsed > 0.0 {
@@ -150,6 +158,14 @@ impl Stats {
         // Clear scan timer so future stats know we're idle
         drop(guard);
         *self.last_scan_start.lock() = None;
+    }
+
+    pub fn last_completed_scan_files(&self) -> u64 {
+        self.last_completed_scan_files.load(Ordering::Relaxed)
+    }
+
+    pub fn last_completed_scan_elapsed(&self) -> Option<f64> {
+        *self.last_completed_scan_elapsed.lock()
     }
     
     // Get the last completed scan rate (for display when idle)

@@ -107,6 +107,8 @@ pub async fn stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     };
 
     let scan_stats = state.stats.scan_stats();
+    let last_completed_scan_files = state.stats.last_completed_scan_files();
+    let last_completed_scan_elapsed = state.stats.last_completed_scan_elapsed();
 
     // Get photo/video counts for current scan if active (uses cached totals)
     let scan_breakdown = if scan_stats.is_some() {
@@ -163,6 +165,12 @@ pub async fn stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let body = serde_json::json!({
         "uptime_seconds": state.stats.uptime_secs(),
         "queues": {"discover": depths.discover, "hash": depths.hash, "metadata": depths.metadata, "db_write": depths.db_write, "thumb": depths.thumb},
+        // Discovery stats (files discovered in the last/active scan)
+        "discovery": {
+            "files_discovered": scan_stats.map(|(files, _, _)| files).unwrap_or(last_completed_scan_files),
+            "rate_files_per_sec": scan_stats.map(|(_, rate, _)| rate).unwrap_or(state.stats.last_completed_scan_rate().unwrap_or(0.0)),
+            "last_completed_elapsed_seconds": last_completed_scan_elapsed.unwrap_or(0.0)
+        },
         "processed": {
             "files_total": state.stats.files_total(),
             "bytes_total": state.stats.bytes_total(),
@@ -188,6 +196,8 @@ pub async fn stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
             };
             let mut scan_data = serde_json::json!({
                 "files_processed": files,
+                // Back-compat for UIs that expect "discovered" naming
+                "files_discovered": files,
                 "files_per_sec": discovery_rate,
                 "elapsed_seconds": elapsed
             });

@@ -344,7 +344,7 @@ export default function Gallery() {
   useEffect(() => {
     if (!stats?.db?.assets) return;
     
-    const currentCount = stats.db.assets;
+    const currentCount = stats.db?.assets ?? 0;
     const prevCount = prevAssetCountRef.current;
     
     // If count changed, schedule a refetch (debounced)

@@ -157,7 +157,7 @@ cargo build --release
 
 **Run with batch file (recommended):**
 ```bash
-run-seen-windows.bat
+run_with_tauri.bat
 ```
 
 The batch file automatically uses your Windows user's Pictures folder (`%USERPROFILE%\Pictures`).
@@ -218,7 +218,7 @@ to produce `frontend/dist` before building the backend.
 
 ### Docker Compose files (current support)
 
-- `docker-compose.custom.yml`: local/dev (used by `dev.bat`, works with optional CUDA via `adjust-docker-compose.ps1`).
+- `docker-compose.custom.yml`: local/dev (used by `run_with_docker.bat`, works with optional CUDA via `adjust-docker-compose.ps1`).
 - `docker-compose.test.yml`: CI/testing.
 
 All legacy platform-specific compose files have been removed; if you need a platform-specific variant, derive from `docker-compose.custom.yml` and override via environment variables.

@@ -6,6 +6,7 @@ import ConfirmDialog from './ConfirmDialog';
 import FileBrowser from './FileBrowser';
 import { useUIStore } from '../lib/store';
 import { usePageVisibility } from '../lib/hooks';
+import { isTauriRuntime } from '../lib/runtime';
 
 export default function PathsManager() {
   const queryClient = useQueryClient();
@@ -19,15 +20,17 @@ export default function PathsManager() {
   // Allow enabling the backend-powered file browser (/browse) explicitly.
   // This is primarily for Docker/WSL, but can be used in any build where the
   // backend exposes /browse and paths are meaningful on that host.
+  const inTauri = isTauriRuntime();
   const fileBrowserEnv = typeof import.meta !== 'undefined' 
     ? (import.meta as any)?.env?.VITE_ENABLE_FILE_BROWSER 
     : undefined;
-  // Default to enabling the backend-powered browser when /browse is available.
-  const isFileBrowserEnabled = fileBrowserEnv !== undefined
+  // Default to OFF. For Tauri desktop, prefer the native folder picker.
+  // Enable explicitly for Docker/WSL web builds via VITE_ENABLE_FILE_BROWSER=1.
+  const isFileBrowserEnabled = !inTauri && fileBrowserEnv !== undefined
     ? (fileBrowserEnv === '1' || String(fileBrowserEnv || '').toLowerCase() === 'true')
-    : true;
+    : false;
 
-  const { data: pathsData = [], isLoading } = useQuery({
+  const { data: pathsData, isLoading } = useQuery({
     queryKey: ['scanPaths'],
     queryFn: () => api.getScanPaths(),
     enabled: isPageVisible,
@@ -35,7 +38,13 @@ export default function PathsManager() {
   });
 
   // Handle both old format (string[]) and new format (Array<{path, is_default, host_path}>)
-  const paths = pathsData.map((item) => 
+  const normalizedPathsData: any[] = Array.isArray(pathsData)
+    ? (pathsData as any[])
+    : Array.isArray((pathsData as any)?.paths)
+      ? ((pathsData as any).paths as any[])
+      : [];
+
+  const paths = normalizedPathsData.map((item) =>
     typeof item === 'string' ? { path: item, is_default: false, host_path: null } : item
   );
 
@@ -87,6 +96,9 @@ export default function PathsManager() {
       queryClient.invalidateQueries({ queryKey: ['stats'] });
       queryClient.invalidateQueries({ queryKey: ['fileTypes'] });
       queryClient.invalidateQueries({ queryKey: ['assets'] });
+      // Also hard-reset cached paginated lists so removed-path assets disappear immediately
+      queryClient.removeQueries({ queryKey: ['assets'] });
+      queryClient.removeQueries({ queryKey: ['search'] });
       setDeleteDialogOpen(false);
       setPathToDelete(null);
     },
@@ -184,7 +196,7 @@ export default function PathsManager() {
 
     // Otherwise, try the Tauri native folder picker (desktop builds).
     try {
-      const { open } = await import(/* @vite-ignore */ '@tauri-apps/api/dialog');
+      const { open } = await import(/* @vite-ignore */ '@tauri-apps/plugin-dialog');
       const selected = await open({
         directory: true,
         multiple: false,

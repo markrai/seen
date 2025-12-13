@@ -58,6 +58,7 @@ export interface ProcessedStats {
 export interface DiscoveryStats {
   files_discovered?: number;
   rate_files_per_sec?: number;
+  last_completed_elapsed_seconds?: number;
 }
 
 export interface ProcessingStats {

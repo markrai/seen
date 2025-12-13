@@ -76,10 +76,10 @@ export default function Performance() {
   // Store last active values when processing, use them when idle
   useEffect(() => {
     if (perf && stats) {
-      if (perf.seen.is_active && stats.processed.files_per_sec > 0) {
+      if (perf.seen.is_active && (stats.processed?.files_per_sec ?? 0) > 0) {
         setLastActive({
-          filesPerSec: stats.processed.files_per_sec,
-          mbPerSec: stats.processed.mb_per_sec || 0,
+          filesPerSec: stats.processed?.files_per_sec ?? 0,
+          mbPerSec: stats.processed?.mb_per_sec ?? 0,
           status: perf.seen.status,
         });
       }
@@ -120,11 +120,11 @@ export default function Performance() {
 
   // Use last active values when idle
   const displayFilesPerSec = isActive
-    ? stats.processed.files_per_sec
-    : lastActive?.filesPerSec || stats.processed.files_per_sec;
+    ? (stats.processed?.files_per_sec ?? 0)
+    : (lastActive?.filesPerSec ?? stats.processed?.files_per_sec ?? 0);
   const displayMbPerSec = isActive
-    ? stats.processed.mb_per_sec || 0
-    : lastActive?.mbPerSec || stats.processed.mb_per_sec || 0;
+    ? (stats.processed?.mb_per_sec ?? 0)
+    : (lastActive?.mbPerSec ?? stats.processed?.mb_per_sec ?? 0);
   const displayStatus = isActive ? currentStatus : lastActive?.status || currentStatus;
 
   // Parse range strings for comparison
@@ -178,7 +178,7 @@ export default function Performance() {
           <div className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm">
             <div className="flex justify-between">
               <span className="text-zinc-600 dark:text-zinc-400">Files Processed</span>
-              <span className="font-semibold text-lg">{formatNumber(stats.processed.files_total)}</span>
+              <span className="font-semibold text-lg">{formatNumber(stats.processed?.files_total ?? 0)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-zinc-600 dark:text-zinc-400">Files/Second</span>
@@ -186,7 +186,7 @@ export default function Performance() {
             </div>
             <div className="flex justify-between">
               <span className="text-zinc-600 dark:text-zinc-400">Data Processed</span>
-              <span className="font-semibold">{formatBytes(stats.processed.bytes_total)}</span>
+              <span className="font-semibold">{formatBytes(stats.processed?.bytes_total ?? 0)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-zinc-600 dark:text-zinc-400">Throughput</span>
@@ -347,7 +347,7 @@ export default function Performance() {
             </div>
             <div className="flex justify-between">
               <span className="text-zinc-600 dark:text-zinc-400">Assets in DB</span>
-              <span className="font-semibold">{formatNumber(stats.db.assets)}</span>
+              <span className="font-semibold">{formatNumber(stats.db?.assets ?? 0)}</span>
             </div>
           </div>
         </div>

@@ -279,7 +279,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!stats) return;
-    const discoveryCount = stats.discovery?.files_discovered ?? stats.processed?.files_total ?? 0;
+    // Prefer explicit discovery counters; fall back to current_scan files_processed.
+    const discoveryCount =
+      stats.discovery?.files_discovered ??
+      stats.current_scan?.files_discovered ??
+      stats.current_scan?.files_processed ??
+      0;
     if (discoveryCountRef.current !== null && discoveryCount > discoveryCountRef.current) {
       const updatedLastScan = {
         files: discoveryCount,
@@ -298,7 +303,8 @@ export default function Dashboard() {
   }, [
     stats,
     stats?.discovery?.files_discovered,
-    stats?.processed?.files_total,
+    stats?.current_scan?.files_processed,
+    stats?.current_scan?.files_discovered,
     stats?.current_scan?.files_per_sec,
     stats?.current_scan?.elapsed_seconds,
     stats?.current_scan?.status,
@@ -345,10 +351,10 @@ export default function Dashboard() {
     const isProcessing = backendProcessingActive;
     
     // Only update lastActive when scan is actually running (not just when queued items exist)
-    if (backendScanRunning && stats.processed.files_per_sec > 0) {
+    if (backendScanRunning && (stats.processed?.files_per_sec ?? 0) > 0) {
       setLastActive({
-        filesPerSec: stats.processed.files_per_sec,
-        mbPerSec: stats.processed.mb_per_sec || 0,
+        filesPerSec: stats.processed?.files_per_sec ?? 0,
+        mbPerSec: stats.processed?.mb_per_sec ?? 0,
         status: seenStatus,
       });
     }
@@ -1434,7 +1440,13 @@ function FileDiscoveryCard({ stats, isScanRunning, lastScan }: { stats: any; isS
         <div className="flex justify-between">
           <span className="text-zinc-600 dark:text-zinc-400">Files Discovered</span>
           <span className="font-semibold">
-            {formatNumber(stats.discovery?.files_discovered ?? stats.processed.files_total)}
+            {formatNumber(
+              stats.discovery?.files_discovered ??
+              stats.current_scan?.files_discovered ??
+              stats.current_scan?.files_processed ??
+              lastScan?.files ??
+              0
+            )}
             {(() => {
               // Use current scan rate when available, otherwise fall back to last completed scan rate
               const rate = (() => {
@@ -1550,7 +1562,7 @@ function ProcessingProgressCard({ stats, lastProcessing, processingElapsedLive, 
           <span className="text-zinc-600 dark:text-zinc-400">Files Processed</span>
           <span className="font-semibold">
             {(() => {
-              const files = formatNumber(stats.processing?.files_committed ?? stats.db.assets);
+              const files = formatNumber(stats.processing?.files_committed ?? stats.db?.assets ?? 0);
               const completedElapsed = stats.processing?.last_completed_elapsed_seconds;
               
               let timeSeconds: number | null = null;
@@ -1589,9 +1601,9 @@ function ProcessingProgressCard({ stats, lastProcessing, processingElapsedLive, 
         <div className="flex justify-between">
           <span className="text-zinc-600 dark:text-zinc-400">Data Processed</span>
           <span className="font-semibold">
-            {formatBytes(stats.processing?.bytes_total ?? stats.processed.bytes_total)}
+            {formatBytes(stats.processing?.bytes_total ?? stats.processed?.bytes_total ?? 0)}
             {(() => {
-              const throughput = stats.processing?.throughput_mb_per_sec ?? stats.processed.mb_per_sec ?? 0;
+              const throughput = stats.processing?.throughput_mb_per_sec ?? stats.processed?.mb_per_sec ?? 0;
               if (throughput > 0) {
                 return ` @ ${throughput.toFixed(2)} MB/s`;
               }
@@ -1733,7 +1745,7 @@ function PerformanceSection({
             <div className="flex justify-between">
               <span className="text-zinc-600 dark:text-zinc-400">Files Discovered</span>
               <span className="font-semibold">
-                {formatNumber(stats.discovery?.files_discovered ?? stats.processed.files_total)}
+                {formatNumber(stats.discovery?.files_discovered ?? stats.processed?.files_total ?? 0)}
                 {(() => {
                   const rate = stats.discovery?.rate_files_per_sec ?? stats.processed.files_per_sec ?? 0;
                   if (rate > 0) {
@@ -1834,7 +1846,7 @@ function PerformanceSection({
               <span className="text-zinc-600 dark:text-zinc-400">Files Processed</span>
               <span className="font-semibold">
                 {(() => {
-                  const files = formatNumber(stats.processing?.files_committed ?? stats.db.assets);
+                  const files = formatNumber(stats.processing?.files_committed ?? stats.db?.assets ?? 0);
                   const completedElapsed = stats.processing?.last_completed_elapsed_seconds;
                   
                   let timeSeconds: number | null = null;
@@ -1860,7 +1872,7 @@ function PerformanceSection({
 
                   // Get throughput rate - show average rate when idle (completed processing)
                   const throughput = !backendProcessingActive
-                    ? (stats.processing?.throughput_mb_per_sec ?? stats.processed.mb_per_sec ?? 0)
+                    ? (stats.processing?.throughput_mb_per_sec ?? stats.processed?.mb_per_sec ?? 0)
                     : 0;
                   
                   return (
@@ -1889,18 +1901,18 @@ function PerformanceSection({
               <span className="text-zinc-600 dark:text-zinc-400">Data Processed</span>
               <span className="font-semibold">
                 {(() => {
-                  const dataBytes = stats.processing?.bytes_total ?? stats.processed.bytes_total ?? 0;
+                  const dataBytes = stats.processing?.bytes_total ?? stats.processed?.bytes_total ?? 0;
                   const dataSize = formatBytes(dataBytes);
                   
                   // Get throughput - always show if available (backend provides last completed throughput when idle)
-                  const throughput = stats.processing?.throughput_mb_per_sec ?? stats.processed.mb_per_sec ?? 0;
+                  const throughput = stats.processing?.throughput_mb_per_sec ?? stats.processed?.mb_per_sec ?? 0;
                   
                   // Get processing rate
                   let processingRate = 0;
                   if (backendProcessingActive && stats.current_processing?.processing_rate_files_per_sec !== undefined) {
                     processingRate = stats.current_processing.processing_rate_files_per_sec;
                   } else if (stats.processing?.rate_files_per_sec !== undefined) {
-                    processingRate = stats.processing.rate_files_per_sec;
+                    processingRate = stats.processing?.rate_files_per_sec ?? 0;
                   }
                   
                   // Combine data size, throughput, and processing rate with @ symbols

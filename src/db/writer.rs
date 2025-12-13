@@ -977,20 +977,54 @@ pub fn remove_scan_path(conn: &Connection, path: &str) -> Result<bool> {
 pub fn delete_assets_by_path_prefix(conn: &Connection, path_prefix: &str) -> Result<(usize, usize)> {
     let tx = conn.unchecked_transaction()?;
     
-    // Normalize path prefix - ensure it ends with / for directory matching
-    let normalized_prefix = if path_prefix.ends_with('/') || path_prefix.ends_with('\\') {
-        path_prefix.to_string()
+    // Normalize path prefix for directory matching across platforms.
+    // Windows paths typically use `\`, but some callers may provide `/`.
+    // We generate LIKE patterns for BOTH separators to ensure deletion works
+    // regardless of how paths are stored in the DB.
+    fn escape_like(s: &str) -> String {
+        s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    }
+
+    let mut prefixes: Vec<String> = Vec::new();
+    // Exact prefix (for file paths or exact directory match)
+    prefixes.push(path_prefix.to_string());
+
+    let (base, had_sep) = if path_prefix.ends_with('/') {
+        (path_prefix.trim_end_matches('/').to_string(), true)
+    } else if path_prefix.ends_with('\\') {
+        (path_prefix.trim_end_matches('\\').to_string(), true)
     } else {
-        // Try both / and \ as separators
-        format!("{}/", path_prefix)
+        (path_prefix.to_string(), false)
     };
+
+    if had_sep {
+        // If caller passed a trailing separator, include both normalized forms.
+        prefixes.push(format!("{}/", base));
+        prefixes.push(format!("{}\\", base));
+    } else {
+        // If caller didn't pass a separator, include both forms as directory prefixes.
+        prefixes.push(format!("{}/", base));
+        prefixes.push(format!("{}\\", base));
+    }
+
+    // Deduplicate while preserving order
+    prefixes.dedup();
+
+    // Build up to two LIKE patterns (slash + backslash).
+    // If only one is available, duplicate it for simpler SQL.
+    let like_prefix1 = prefixes.get(1).cloned().unwrap_or_else(|| prefixes[0].clone());
+    let like_prefix2 = prefixes.get(2).cloned().unwrap_or_else(|| like_prefix1.clone());
+    let like_pattern1 = format!("{}%", escape_like(&like_prefix1));
+    let like_pattern2 = format!("{}%", escape_like(&like_prefix2));
     
     // Get all asset IDs that match the path prefix (path starts with prefix or equals prefix)
     // Use ESCAPE to handle special characters in LIKE
-    let like_pattern = format!("{}%", normalized_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"));
     let asset_ids: Vec<i64> = {
-        let mut stmt = tx.prepare("SELECT id FROM assets WHERE path LIKE ?1 ESCAPE '\\' OR path = ?2")?;
-        let rows = stmt.query_map(params![like_pattern, path_prefix], |row| {
+        let mut stmt = tx.prepare(
+            "SELECT id FROM assets \
+             WHERE (path LIKE ?1 ESCAPE '\\' OR path LIKE ?2 ESCAPE '\\' OR path = ?3)"
+        )?;
+        let rows = stmt.query_map(params![like_pattern1, like_pattern2, path_prefix], |row| {
             row.get::<_, i64>(0)
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
@@ -1014,9 +1048,16 @@ pub fn delete_assets_by_path_prefix(conn: &Connection, path_prefix: &str) -> Res
     }
     
     // Delete from assets table
-    let assets_deleted = tx.execute("DELETE FROM assets WHERE path LIKE ?1 ESCAPE '\\' OR path = ?2", params![like_pattern, path_prefix])?;
+    let assets_deleted = tx.execute(
+        "DELETE FROM assets WHERE (path LIKE ?1 ESCAPE '\\' OR path LIKE ?2 ESCAPE '\\' OR path = ?3)",
+        params![like_pattern1, like_pattern2, path_prefix]
+    )?;
     
     tx.commit()?;
+
+    // Force WAL checkpoint to ensure changes are visible immediately (WAL mode).
+    // This helps UIs that query immediately after deletion.
+    let _ = conn.pragma_update(None, "wal_checkpoint", "FULL");
     
     Ok((assets_deleted, faces_deleted))
 }

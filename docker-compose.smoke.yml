@@ -1,0 +1,19 @@
+services:
+  seen:
+    image: seen-backend-smoke:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - FLASH_ROOT=/photos
+      - FLASH_DATA=/flash-data
+      - FLASH_PORT=9161
+      - RUST_LOG=info
+      - GPU_ACCEL=cpu
+    volumes:
+      - ./frontend:/app/frontend:ro
+      - ./seen-data:/flash-data:rw
+      - ./photos:/photos:rw
+    ports:
+      - "9161:9161"
+

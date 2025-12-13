@@ -29,6 +29,10 @@ export default defineConfig({
     alias: process.env.VITE_BUILD_TAURI
       ? {}
       : {
+          // Web/Docker builds should not bundle Tauri dialog APIs.
+          // Stub them so the UI can gracefully fall back.
+          '@tauri-apps/plugin-dialog': path.resolve(__dirname, 'src/lib/tauriDialogStub.ts'),
+          // Legacy path (Tauri v1) kept for safety.
           '@tauri-apps/api/dialog': path.resolve(__dirname, 'src/lib/tauriDialogStub.ts'),
         },
   },

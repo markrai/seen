@@ -68,6 +68,7 @@ export default function FileBrowser({ currentPath, onPathSelect, onClose }: File
 
   const canGoBack = pathHistory.length > 1;
   const currentDisplayPath = data?.path || selectedPath;
+  const entries = Array.isArray((data as any)?.entries) ? (data as any).entries : [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70" onClick={onClose}>
@@ -113,12 +114,12 @@ export default function FileBrowser({ currentPath, onPathSelect, onClose }: File
 
           {!isLoading && !error && data && (
             <div className="space-y-1">
-              {data.entries.length === 0 ? (
+              {entries.length === 0 ? (
                 <div className="text-zinc-500 dark:text-zinc-400 text-sm py-8 text-center">
                   This folder is empty
                 </div>
               ) : (
-                data.entries.map((entry) => (
+                entries.map((entry) => (
                   <button
                     key={entry.path}
                     onClick={() => handleEntryClick(entry)}

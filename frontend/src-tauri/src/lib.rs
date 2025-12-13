@@ -5,6 +5,7 @@ use tauri_plugin_shell::ShellExt;
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
+    .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -49,6 +50,14 @@ pub fn run() {
         .or_else(|| app.webview_windows().values().next().cloned());
 
       if let Some(window) = window {
+        // Open DevTools (F12 will also work)
+        #[cfg(debug_assertions)]
+        {
+          if let Err(e) = window.open_devtools() {
+            eprintln!("Failed to open DevTools: {:?}", e);
+          }
+        }
+        
         // Get the monitor where the window will be displayed
         // Try current_monitor first, then fall back to available monitors
         let monitor = window.current_monitor()
