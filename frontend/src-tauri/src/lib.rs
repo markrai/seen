@@ -1,11 +1,27 @@
 use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_shell::process::CommandChild;
+use std::sync::Mutex;
+
+/// Holds the spawned backend sidecar so we can terminate it when the app closes.
+struct BackendSidecar(Mutex<Option<CommandChild>>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_dialog::init())
+    // Single-window app: when the window closes, ensure we also terminate the backend sidecar.
+    .on_window_event(|window, event| {
+      if let tauri::WindowEvent::CloseRequested { .. } = event {
+        let app = window.app_handle();
+        let state = app.state::<BackendSidecar>();
+        let mut guard = state.0.lock().unwrap();
+        if let Some(child) = guard.take() {
+          let _ = child.kill();
+        }
+      }
+    })
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -17,7 +33,8 @@ pub fn run() {
 
       // Spawn the backend sidecar
       let sidecar_command = app.shell().sidecar("seen-backend").unwrap();
-      let (mut _rx, _child) = sidecar_command.spawn().expect("Failed to spawn backend sidecar");
+      let (mut _rx, child) = sidecar_command.spawn().expect("Failed to spawn backend sidecar");
+      app.manage(BackendSidecar(Mutex::new(Some(child))));
 
       // Optionally log sidecar output in debug mode
       if cfg!(debug_assertions) {
@@ -53,9 +70,8 @@ pub fn run() {
         // Open DevTools (F12 will also work)
         #[cfg(debug_assertions)]
         {
-          if let Err(e) = window.open_devtools() {
-            eprintln!("Failed to open DevTools: {:?}", e);
-          }
+          // Tauri v2: open_devtools() returns (), not a Result.
+          window.open_devtools();
         }
         
         // Get the monitor where the window will be displayed
