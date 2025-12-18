@@ -1,6 +1,9 @@
 <img width="1709" height="372" alt="image" src="https://github.com/user-attachments/assets/4236555c-16d9-43c8-a7d7-45ba4cfd8cad" />
 
 
+<img width="959" height="539" alt="image" src="https://github.com/user-attachments/assets/ab733e8b-cc65-4f32-8594-fbaff8886280" />
+
+
 
 
 
@@ -466,8 +469,7 @@ docker compose -f docker-compose.test.yml run --rm test cargo test --no-default-
 - Thumbnails and previews are saved under ${FLASH_DATA}/derived.
 - SQLite is in WAL mode; DB file at ${FLASH_DATA}/db/seen.db.
 
-<img width="1873" height="836" alt="image" src="https://github.com/user-attachments/assets/7c46c906-c65b-4da6-9e95-7308b948b79a" />
+<img width="959" height="540" alt="image" src="https://github.com/user-attachments/assets/9d978438-1b5a-4819-8022-e7e60c3e9feb" />
 
-<img width="1887" height="873" alt="image" src="https://github.com/user-attachments/assets/f563309b-7c4d-441d-ac30-a65be31d2e7c" />
 
 
